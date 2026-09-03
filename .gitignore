@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+/app/tmp/
+/app/vendor/
+
+# Local
+*.local
