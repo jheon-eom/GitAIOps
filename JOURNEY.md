@@ -21,6 +21,7 @@
 | ch4 | 4.4 알림 | ✅ | 2026-09-04 | PrometheusRule 3개(PodRestartTooMany, NotiflexHighCpu, 파이프라인 검증용) 배포, Alertmanager 수신 확인. 실 receiver는 null (Slack 미연결) |
 | ch5 | 5.2 트래픽 관리 | ✅ | 2026-09-04 | GKE Gateway API 도입, 외부 IP 35.216.118.49로 /health·/version 200 OK 확인 |
 | ch5 | 5.3 무중단 배포 | ✅ | 2026-09-04 | Argo Rollouts v1.10.0 도입, Deployment→Rollout 전환, v0.2.0 배포 시 Blue/Green auto-promote(30s) 실증 |
+| ch5 | 5.4 ADR 기록 | ✅ | 2026-09-04 | docs/architecture-decisions.md 신설, ADR-001~007로 3~5장 결정 정리 |
 | ch6 | 6.1 캐시 | ⬜ | | |
 | ch6 | 6.2 시크릿 관리 | ⬜ | | |
 | ch6 | 6.3 Canary 전환 | ⬜ | | |
