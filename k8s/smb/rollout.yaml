@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: asia-northeast3-docker.pkg.dev/git-ai-ops-practice/notiflex/api:sha-d1462c9
+          image: asia-northeast3-docker.pkg.dev/git-ai-ops-practice/notiflex/api:sha-11a274f
           ports:
             - name: http
               containerPort: 8080
