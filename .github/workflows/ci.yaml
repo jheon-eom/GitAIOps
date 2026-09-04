@@ -38,6 +38,40 @@ jobs:
           IMAGE="asia-northeast3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/notiflex/api:${SHA_TAG}"
           docker build -t "$IMAGE" app/
           docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "::notice title=Image pushed::${IMAGE}"
-        id: build
+
+  update-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rewrite deployment image tag
+        run: |
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+          IMAGE="asia-northeast3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/notiflex/api:${SHA_TAG}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "SHA_TAG=$SHA_TAG" >> "$GITHUB_ENV"
+          if [ -z "$IMAGE" ]; then
+            echo "IMAGE is empty; refusing to run sed." >&2
+            exit 1
+          fi
+          sed -i "s|image: asia-northeast3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/notiflex/api:.*|image: ${IMAGE}|" k8s/smb/deployment.yaml
+          echo "--- deployment.yaml image line ---"
+          grep 'image:' k8s/smb/deployment.yaml
+
+      - name: Commit and push manifest change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet k8s/smb/deployment.yaml; then
+            echo "::notice title=No change::deployment.yaml already at ${SHA_TAG}"
+            exit 0
+          fi
+          git add k8s/smb/deployment.yaml
+          git commit -m "chore(deploy): bump api image to ${SHA_TAG} [skip ci]"
+          git push origin HEAD:main
+          echo "::notice title=Manifest updated::${IMAGE}"
