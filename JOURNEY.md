@@ -15,7 +15,7 @@
 | ch3 | 3.2 GitOps 도구 | ✅ | 2026-09-04 | ArgoCD v3.5.2 설치, notiflex-smb Application Synced/Healthy |
 | ch3 | 3.3 기능 추가 | ✅ | 2026-09-04 | /version 엔드포인트 추가, v0.1.1 Rolling Update 완료 |
 | ch3 | 3.4 CI | ✅ | 2026-09-04 | GitHub Actions로 app/** 변경 시 이미지 자동 빌드·push, SHA 태그(sha-xxxxxxx) 방식 |
-| ch3 | 3.5 CI-CD 연결 | ⬜ | | |
+| ch3 | 3.5 CI-CD 연결 | ✅ | 2026-09-04 | CI가 매니페스트 자동 커밋([skip ci]), ArgoCD가 감지하여 자동 배포. /ping E2E 검증 완료 |
 | ch4 | 4.2 메트릭 모니터링 | ⬜ | | |
 | ch4 | 4.3 로그 수집 | ⬜ | | |
 | ch4 | 4.4 알림 | ⬜ | | |
@@ -50,7 +50,7 @@
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
-| Notiflex 이미지 | v0.1.1 | 2026-09-04 /version 엔드포인트 추가 (Cloud Build, digest `sha256:66019d56...`) — v0.1.0(`sha256:b587b653...`) → v0.1.1 |
+| Notiflex 이미지 | sha-d1462c9 | 2026-09-04 CI 자동 빌드로 SHA 태그 방식 전환. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) |
 | ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
 | Kafka | | |
 | OTel SDK | | |
