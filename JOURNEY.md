@@ -16,9 +16,9 @@
 | ch3 | 3.3 기능 추가 | ✅ | 2026-09-04 | /version 엔드포인트 추가, v0.1.1 Rolling Update 완료 |
 | ch3 | 3.4 CI | ✅ | 2026-09-04 | GitHub Actions로 app/** 변경 시 이미지 자동 빌드·push, SHA 태그(sha-xxxxxxx) 방식 |
 | ch3 | 3.5 CI-CD 연결 | ✅ | 2026-09-04 | CI가 매니페스트 자동 커밋([skip ci]), ArgoCD가 감지하여 자동 배포. /ping E2E 검증 완료 |
-| ch4 | 4.2 메트릭 모니터링 | ⬜ | | |
-| ch4 | 4.3 로그 수집 | ⬜ | | |
-| ch4 | 4.4 알림 | ⬜ | | |
+| ch4 | 4.2 메트릭 모니터링 | ✅ | 2026-09-04 | kube-prometheus-stack Helm 설치, Grafana에 Notiflex 대시보드 ConfigMap 자동 로드 |
+| ch4 | 4.3 로그 수집 | ✅ | 2026-09-04 | Loki SingleBinary + fluent/fluent-bit DaemonSet, Grafana에 Loki 데이터소스 자동 등록 (kubernetes_namespace_name 라벨) |
+| ch4 | 4.4 알림 | ✅ | 2026-09-04 | PrometheusRule 3개(PodRestartTooMany, NotiflexHighCpu, 파이프라인 검증용) 배포, Alertmanager 수신 확인. 실 receiver는 null (Slack 미연결) |
 | ch5 | 5.2 트래픽 관리 | ⬜ | | |
 | ch5 | 5.3 무중단 배포 | ⬜ | | |
 | ch6 | 6.1 캐시 | ⬜ | | |
@@ -44,6 +44,9 @@
 |------|------|-----------|----------|
 | GitOps 도구 | ArgoCD | Flux, Jenkins X, Spinnaker | Web UI로 배포 상태 시각화가 학습·실습에 유리, e2-medium 노드에서 감당 가능한 리소스(~500MB) |
 | CI 도구 | GitHub Actions | Cloud Build, GitLab CI, Jenkins | 코드가 이미 GitHub에 있어 별도 서버·플랫폼 이동 불필요, YAML 한 파일로 파이프라인 정의 |
+| 메트릭 모니터링 | Prometheus + Grafana (kube-prometheus-stack) | Datadog, CloudWatch, GCP Monitoring | 오픈소스 표준·비용 0원, Helm 번들로 6개 컴포넌트 일괄 설치, 이후 Loki/Tempo와 Grafana 하나로 통합 가능 |
+| 로그 수집 | Loki + Fluent Bit (fluent/fluent-bit 차트) | ELK, CloudWatch Logs, GCP Logging | 경량(~200Mi 총합)으로 e2-medium 감당 가능, Grafana에서 메트릭·로그 동시 조회, 라벨 인덱싱으로 저장 비용 낮음 |
+| 알림 방식 | PrometheusRule + Alertmanager | Grafana Alerting, PagerDuty, GCP Cloud Monitoring | GitOps 흐름 유지(YAML → Git → ArgoCD 동기화), 4.2에서 이미 설치돼 추가 비용 0, git blame으로 임계값 근거 추적 가능 |
 
 ## 현재 버전
 
@@ -52,6 +55,10 @@
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
 | Notiflex 이미지 | sha-d1462c9 | 2026-09-04 CI 자동 빌드로 SHA 태그 방식 전환. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) |
 | ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
+| kube-prometheus-stack | chart 89.2.0 (operator v0.93.1) / Prometheus v3.14.0 / Grafana 13.2.1 / Alertmanager v0.34.0 | 2026-09-04 설치. Prometheus 100m/256Mi, Alertmanager 25m/64Mi 초기값 (ch6 CSI 대비 임시). Grafana는 4.3에서 sidecar.datasources 활성화 + OOMKilled로 memory limit 256→512Mi 상향 |
+| Loki | chart 7.3.0 / app 3.6.12 (SingleBinary) | 2026-09-04 설치. schemaConfig v13 명시, useTestSchema 제거, backend/read/write replicas=0 |
+| Fluent Bit | chart 0.58.1 / app 5.1.1 (DaemonSet) | 2026-09-04 설치. grafana/fluent-bit는 deprecated + image override 불가로 공식 fluent/fluent-bit 차트로 전환. Read_from_Head On으로 기존 로그도 수집 |
+| PrometheusRule | notiflex-alerts (3 rules) | 2026-09-04 4.4에서 pod-restart-alert.yaml 배포: PodRestartTooMany, NotiflexHighCpu, NotiflexAlertPipelineTest(검증용). Alertmanager receiver는 null (Slack 미연결) |
 | Kafka | | |
 | OTel SDK | | |
 
@@ -77,3 +84,9 @@
 | 2.6 | 최초 배포된 pod 2개가 같은 노드에 스케줄된 뒤 Spot VM preemption으로 모두 Error 상태가 됨 | GKE가 대체 노드에서 자동 재스케줄. Spot VM의 정상 동작이며, 프로덕션에서는 anti-affinity로 pod를 여러 노드에 분산시키는 것이 안전 |
 | 3.2 | Fine-grained PAT 등록 후에도 Sync가 `authorization failed: Write access to repository not granted`로 실패 | 토큰의 Repository permissions에서 **Contents: Read-only**가 부여되지 않은 것이 원인. Repository access만 지정하고 Permissions를 건드리지 않으면 모든 권한이 No access. Contents: Read-only 부여한 새 토큰으로 Secret 교체 후 Sync 정상화 |
 | 3.3 | `git push` 후에도 ArgoCD가 3분 주기 auto-sync 전까지 새 커밋을 감지하지 못함 | `kubectl annotate application <name> argocd.argoproj.io/refresh=hard --overwrite`로 즉시 refresh 트리거. 실습 중 대기 시간을 줄일 때 유용 |
+| 4.3 | grafana/fluent-bit 차트가 deprecated + `image.repository` override가 무시되어 ImagePullBackOff | 가드레일의 공식 대안 `fluent/fluent-bit` 차트(fluent helm repo)로 전환. `kind: DaemonSet`, `config.inputs/filters/outputs`로 재구성 |
+| 4.3 | Loki chart v6+에서 `useTestSchema`와 `schemaConfig`를 동시에 정의하면 `INSTALLATION FAILED` | 하나만 사용해야 함. schemaConfig v13을 명시하고 useTestSchema를 제거 |
+| 4.3 | Loki chart가 SingleBinary와 SimpleScalable을 동시에 replicas>0으로 처리하려 해서 설치 실패 | `backend/read/write` replicas를 0으로 명시하여 SingleBinary만 사용하도록 강제 |
+| 4.3 | Fluent Bit이 이미 존재하는 로그 파일의 이전 내용을 읽지 않아 notiflex-api 시작 로그(단발성)를 놓침 | `[INPUT] tail`에 `Read_from_Head On` 추가. 학습 환경에서는 기존 로그도 확인 필요 |
+| 4.3 | Grafana port-forward가 반복적으로 끊김 → 원인은 Grafana 컨테이너 OOMKilled(exit 137). helm upgrade로 sidecar 컨테이너·datasource 추가되면서 메모리 사용량이 초기 튜닝값 256Mi를 초과 | `helm-values/kube-prometheus.yaml`의 `grafana.resources.limits.memory`를 256Mi → 512Mi로 상향 후 helm upgrade. ch6 진입 전 축소 시에도 grafana는 최소 384Mi 이상 유지 권장 |
+| 4.3 | Spot VM 노드 1개(1js1) preemption으로 노드 1개만 남아 Grafana/Alertmanager/Prometheus Pending. GKE Autoscaler가 새 Spot 노드 프로비저닝하여 수 분 내 자동 복구 | Loki-0은 살아남아 로그 데이터 손실 없음. 반복되면 non-Spot 노드풀 병용 고려 |
