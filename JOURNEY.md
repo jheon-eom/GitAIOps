@@ -12,7 +12,7 @@
 | ch2 | 2.5 GKE 클러스터 | ✅ | 2026-09-03 | notiflex-cluster (Zonal, Gateway API 활성) |
 | ch2 | 2.6 빌드/배포 | ✅ | 2026-09-03 | Cloud Build로 이미지 빌드, Spot 노드 preempt 1회 겪음 |
 | ch2 | 2.7 첫 커밋 | ✅ | 2026-09-03 | JOURNEY.md 생성 및 최초 push |
-| ch3 | 3.2 GitOps 도구 | ⬜ | | |
+| ch3 | 3.2 GitOps 도구 | ✅ | 2026-09-04 | ArgoCD v3.5.2 설치, notiflex-smb Application Synced/Healthy |
 | ch3 | 3.3 기능 추가 | ⬜ | | |
 | ch3 | 3.4 CI | ⬜ | | |
 | ch3 | 3.5 CI-CD 연결 | ⬜ | | |
@@ -42,7 +42,7 @@
 
 | 영역 | 선택 | 검토한 대안 | 선택 이유 |
 |------|------|-----------|----------|
-| | | | |
+| GitOps 도구 | ArgoCD | Flux, Jenkins X, Spinnaker | Web UI로 배포 상태 시각화가 학습·실습에 유리, e2-medium 노드에서 감당 가능한 리소스(~500MB) |
 
 ## 현재 버전
 
@@ -50,7 +50,7 @@
 |---------|------|----------|
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
 | Notiflex 이미지 | v0.1.0 | 2026-09-03 초기 빌드 (Cloud Build, digest `sha256:b587b653...`) |
-| ArgoCD | | |
+| ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
 | Kafka | | |
 | OTel SDK | | |
 
@@ -74,3 +74,4 @@
 |------|------|------|
 | 2.5 | GKE 생성 직후 `kubectl` 명령이 `gke-gcloud-auth-plugin ... not found`로 실패 | `gcloud components install gke-gcloud-auth-plugin` 으로 별도 설치. Homebrew cask google-cloud-sdk는 이 플러그인을 기본 포함하지 않음 |
 | 2.6 | 최초 배포된 pod 2개가 같은 노드에 스케줄된 뒤 Spot VM preemption으로 모두 Error 상태가 됨 | GKE가 대체 노드에서 자동 재스케줄. Spot VM의 정상 동작이며, 프로덕션에서는 anti-affinity로 pod를 여러 노드에 분산시키는 것이 안전 |
+| 3.2 | Fine-grained PAT 등록 후에도 Sync가 `authorization failed: Write access to repository not granted`로 실패 | 토큰의 Repository permissions에서 **Contents: Read-only**가 부여되지 않은 것이 원인. Repository access만 지정하고 Permissions를 건드리지 않으면 모든 권한이 No access. Contents: Read-only 부여한 새 토큰으로 Secret 교체 후 Sync 정상화 |
