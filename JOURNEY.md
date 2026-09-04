@@ -55,7 +55,7 @@
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
-| Notiflex 이미지 | sha-11a274f (v0.2.0) | 2026-09-04 CI 자동 빌드로 SHA 태그 방식 전환. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 승격) |
+| Notiflex 이미지 | sha-afbc9b9 (v0.3.0) | 2026-09-04 CI 자동 빌드로 SHA 태그 방식 전환. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 첫 승격) → sha-afbc9b9(CI, 5.3 Blue/Green 관찰 시연) |
 | ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
 | kube-prometheus-stack | chart 89.2.0 (operator v0.93.1) / Prometheus v3.14.0 / Grafana 13.2.1 / Alertmanager v0.34.0 | 2026-09-04 설치. Prometheus 100m/256Mi, Alertmanager 25m/64Mi 초기값 (ch6 CSI 대비 임시). Grafana는 4.3에서 sidecar.datasources 활성화 + OOMKilled로 memory limit 256→512Mi 상향 |
 | Loki | chart 7.3.0 / app 3.6.12 (SingleBinary) | 2026-09-04 설치. schemaConfig v13 명시, useTestSchema 제거, backend/read/write replicas=0 |
@@ -97,3 +97,4 @@
 | 4.3 | Grafana port-forward가 반복적으로 끊김 → 원인은 Grafana 컨테이너 OOMKilled(exit 137). helm upgrade로 sidecar 컨테이너·datasource 추가되면서 메모리 사용량이 초기 튜닝값 256Mi를 초과 | `helm-values/kube-prometheus.yaml`의 `grafana.resources.limits.memory`를 256Mi → 512Mi로 상향 후 helm upgrade. ch6 진입 전 축소 시에도 grafana는 최소 384Mi 이상 유지 권장 |
 | 4.3 | Spot VM 노드 1개(1js1) preemption으로 노드 1개만 남아 Grafana/Alertmanager/Prometheus Pending. GKE Autoscaler가 새 Spot 노드 프로비저닝하여 수 분 내 자동 복구 | Loki-0은 살아남아 로그 데이터 손실 없음. 반복되면 non-Spot 노드풀 병용 고려 |
 | 5.3 | `kubectl apply -f install.yaml`이 `analysisruns`, `rollouts` CRD에서 `metadata.annotations: Too long: may not be more than 262144 bytes`로 실패. client-side apply가 last-applied-configuration annotation을 심는데 CRD 스키마가 초과 | `kubectl apply --server-side`로 재시도하면 통과. server-side apply는 field manager 방식이라 annotation 저장 안 함. 대형 CRD 설치의 사실상 표준 |
+| 5.3 | Blue→Green promote 직후 외부 Gateway로 curl 시 순간적으로 `no healthy upstream` 2회 관찰 | active Service selector 전환 후 GKE GCLB 백엔드가 새 Pod IP를 healthy로 인지하기까지 헬스체크 사이클(checkIntervalSec=15s, unhealthyThreshold=2) 만큼 지연. 완전 zero-downtime을 원하면 HealthCheckPolicy checkIntervalSec를 5s로 낮추거나, prePromotionAnalysis로 백엔드 웜업 후 promote 필요. Notiflex 초기 단계에서는 수 초 히컵 허용 |
