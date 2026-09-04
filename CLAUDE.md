@@ -14,7 +14,10 @@ Notiflex — B2B 알림 SaaS 플랫폼의 인프라 및 애플리케이션 저�
 - **컨테이너**: multi-stage 빌드 + `scratch` 베이스 이미지
 - **오케스트레이션**: GKE Standard (Zonal, Spot VM)
 - **GitOps**: ArgoCD (3장에서 도입)
+- **CI**: GitHub Actions (3장에서 도입, SHA 태그 자동 커밋으로 ArgoCD 연동)
 - **관측 가능성**: Prometheus, Grafana, Loki, Fluent Bit, Tempo (4·8장)
+- **외부 트래픽**: GKE Gateway API + HealthCheckPolicy (5장에서 도입)
+- **배포 컨트롤러**: Argo Rollouts (5장에서 도입, Blue/Green → 6장 Canary 전환 예정)
 - **배포 전략**: Rolling → Blue/Green → Canary (점진 진화)
 
 ## GCP 설정
@@ -31,9 +34,15 @@ Notiflex — B2B 알림 SaaS 플랫폼의 인프라 및 애플리케이션 저�
 ```
 notiflex-platform/
 ├── CLAUDE.md
+├── JOURNEY.md            # 실제 진행 이력·도구 선택·현재 버전·트러블슈팅 (AI가 각 챕터 완료 시 갱신)
 ├── app/                  # Go 애플리케이션 소스
+├── argocd/               # ArgoCD Application 매니페스트
+├── docs/
+│   └── architecture-decisions.md  # ADR (5장에서 도입)
+├── helm-values/          # Helm values 파일 (kube-prometheus, loki, fluent-bit)
 ├── k8s/
 │   └── smb/              # Kubernetes 매니페스트 (SMB = Single-cluster, Manifest-based, Basic)
+│                         #   Gateway, HTTPRoute, HealthCheckPolicy, Rollout, Service(active+preview)
 └── .github/
     └── workflows/        # GitHub Actions CI 파이프라인
 ```

@@ -71,7 +71,7 @@
 
 | 노드풀 | 머신 타입 | 노드 수 | 주요 워크로드 |
 |--------|----------|---------|-------------|
-| default-pool | e2-medium (Spot, disk 30GB) | 2 | notiflex-api (2 replicas) |
+| default-pool | e2-medium (Spot, disk 30GB) | 2 | notiflex-api Rollout(2 replicas, Blue/Green 시 일시 4), ArgoCD, kube-prometheus-stack, Loki, Fluent Bit DaemonSet, argo-rollouts controller |
 
 **GCP 컨텍스트**
 - Project: `git-ai-ops-practice`
