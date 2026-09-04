@@ -20,7 +20,7 @@
 | ch4 | 4.3 로그 수집 | ✅ | 2026-09-04 | Loki SingleBinary + fluent/fluent-bit DaemonSet, Grafana에 Loki 데이터소스 자동 등록 (kubernetes_namespace_name 라벨) |
 | ch4 | 4.4 알림 | ✅ | 2026-09-04 | PrometheusRule 3개(PodRestartTooMany, NotiflexHighCpu, 파이프라인 검증용) 배포, Alertmanager 수신 확인. 실 receiver는 null (Slack 미연결) |
 | ch5 | 5.2 트래픽 관리 | ✅ | 2026-09-04 | GKE Gateway API 도입, 외부 IP 35.216.118.49로 /health·/version 200 OK 확인 |
-| ch5 | 5.3 무중단 배포 | ⬜ | | |
+| ch5 | 5.3 무중단 배포 | ✅ | 2026-09-04 | Argo Rollouts v1.10.0 도입, Deployment→Rollout 전환, v0.2.0 배포 시 Blue/Green auto-promote(30s) 실증 |
 | ch6 | 6.1 캐시 | ⬜ | | |
 | ch6 | 6.2 시크릿 관리 | ⬜ | | |
 | ch6 | 6.3 Canary 전환 | ⬜ | | |
@@ -48,19 +48,21 @@
 | 로그 수집 | Loki + Fluent Bit (fluent/fluent-bit 차트) | ELK, CloudWatch Logs, GCP Logging | 경량(~200Mi 총합)으로 e2-medium 감당 가능, Grafana에서 메트릭·로그 동시 조회, 라벨 인덱싱으로 저장 비용 낮음 |
 | 알림 방식 | PrometheusRule + Alertmanager | Grafana Alerting, PagerDuty, GCP Cloud Monitoring | GitOps 흐름 유지(YAML → Git → ArgoCD 동기화), 4.2에서 이미 설치돼 추가 비용 0, git blame으로 임계값 근거 추적 가능 |
 | 외부 트래픽 관리 | Gateway API (gke-l7-regional-external-managed) | Ingress NGINX, Istio, Traefik | GKE 네이티브라 Controller 설치·유지 리소스 0, Gateway/HTTPRoute 역할 분리, 5.3 Blue/Green에서 backendRefs weight로 자연 확장 |
+| 무중단 배포 전략 | Argo Rollouts (Blue/Green) | Flagger, K8s Rolling Update | ArgoCD와 같은 Argo 생태계로 UI 통합, Rollout CRD strategy만 교체하면 6장 Canary로 진화 가능, kubectl 플러그인으로 실시간 관찰 |
 
 ## 현재 버전
 
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
-| Notiflex 이미지 | sha-d1462c9 | 2026-09-04 CI 자동 빌드로 SHA 태그 방식 전환. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) |
+| Notiflex 이미지 | sha-11a274f (v0.2.0) | 2026-09-04 CI 자동 빌드로 SHA 태그 방식 전환. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 승격) |
 | ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
 | kube-prometheus-stack | chart 89.2.0 (operator v0.93.1) / Prometheus v3.14.0 / Grafana 13.2.1 / Alertmanager v0.34.0 | 2026-09-04 설치. Prometheus 100m/256Mi, Alertmanager 25m/64Mi 초기값 (ch6 CSI 대비 임시). Grafana는 4.3에서 sidecar.datasources 활성화 + OOMKilled로 memory limit 256→512Mi 상향 |
 | Loki | chart 7.3.0 / app 3.6.12 (SingleBinary) | 2026-09-04 설치. schemaConfig v13 명시, useTestSchema 제거, backend/read/write replicas=0 |
 | Fluent Bit | chart 0.58.1 / app 5.1.1 (DaemonSet) | 2026-09-04 설치. grafana/fluent-bit는 deprecated + image override 불가로 공식 fluent/fluent-bit 차트로 전환. Read_from_Head On으로 기존 로그도 수집 |
 | PrometheusRule | notiflex-alerts (3 rules) | 2026-09-04 4.4에서 pod-restart-alert.yaml 배포: PodRestartTooMany, NotiflexHighCpu, NotiflexAlertPipelineTest(검증용). Alertmanager receiver는 null (Slack 미연결) |
 | Gateway API | Gateway v1 + HealthCheckPolicy v1 | 2026-09-04 5.2에서 도입. GatewayClass=gke-l7-regional-external-managed, 외부 IP=35.216.118.49. HealthCheckPolicy로 /health:8080 헬스체크 지정(기본 / 프로브 시 no healthy upstream 회피). proxy-only-subnet(asia-northeast3, 172.16.0.0/23) 신규 생성 |
+| Argo Rollouts | controller v1.10.0 / plugin v1.9.0 | 2026-09-04 5.3에서 도입. install.yaml은 `--server-side` 필수(CRD annotation size 초과 회피). Rollout strategy=BlueGreen, autoPromotionSeconds=30. 앞으로 6.3 Canary 전환 시 strategy 필드만 교체 |
 | Kafka | | |
 | OTel SDK | | |
 
@@ -94,3 +96,4 @@
 | 4.3 | Fluent Bit이 이미 존재하는 로그 파일의 이전 내용을 읽지 않아 notiflex-api 시작 로그(단발성)를 놓침 | `[INPUT] tail`에 `Read_from_Head On` 추가. 학습 환경에서는 기존 로그도 확인 필요 |
 | 4.3 | Grafana port-forward가 반복적으로 끊김 → 원인은 Grafana 컨테이너 OOMKilled(exit 137). helm upgrade로 sidecar 컨테이너·datasource 추가되면서 메모리 사용량이 초기 튜닝값 256Mi를 초과 | `helm-values/kube-prometheus.yaml`의 `grafana.resources.limits.memory`를 256Mi → 512Mi로 상향 후 helm upgrade. ch6 진입 전 축소 시에도 grafana는 최소 384Mi 이상 유지 권장 |
 | 4.3 | Spot VM 노드 1개(1js1) preemption으로 노드 1개만 남아 Grafana/Alertmanager/Prometheus Pending. GKE Autoscaler가 새 Spot 노드 프로비저닝하여 수 분 내 자동 복구 | Loki-0은 살아남아 로그 데이터 손실 없음. 반복되면 non-Spot 노드풀 병용 고려 |
+| 5.3 | `kubectl apply -f install.yaml`이 `analysisruns`, `rollouts` CRD에서 `metadata.annotations: Too long: may not be more than 262144 bytes`로 실패. client-side apply가 last-applied-configuration annotation을 심는데 CRD 스키마가 초과 | `kubectl apply --server-side`로 재시도하면 통과. server-side apply는 field manager 방식이라 annotation 저장 안 함. 대형 CRD 설치의 사실상 표준 |
