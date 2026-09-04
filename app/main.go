@@ -44,11 +44,17 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(versionResp{Version: version, Pod: pod})
 }
 
+func pingHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"pong":"ok"}`))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/id", idHandler)
 	mux.HandleFunc("/version", versionHandler)
+	mux.HandleFunc("/ping", pingHandler)
 
 	addr := ":8080"
 	log.Printf("notiflex-api listening on %s", addr)
