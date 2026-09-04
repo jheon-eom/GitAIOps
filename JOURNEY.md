@@ -19,7 +19,7 @@
 | ch4 | 4.2 메트릭 모니터링 | ✅ | 2026-09-04 | kube-prometheus-stack Helm 설치, Grafana에 Notiflex 대시보드 ConfigMap 자동 로드 |
 | ch4 | 4.3 로그 수집 | ✅ | 2026-09-04 | Loki SingleBinary + fluent/fluent-bit DaemonSet, Grafana에 Loki 데이터소스 자동 등록 (kubernetes_namespace_name 라벨) |
 | ch4 | 4.4 알림 | ✅ | 2026-09-04 | PrometheusRule 3개(PodRestartTooMany, NotiflexHighCpu, 파이프라인 검증용) 배포, Alertmanager 수신 확인. 실 receiver는 null (Slack 미연결) |
-| ch5 | 5.2 트래픽 관리 | ⬜ | | |
+| ch5 | 5.2 트래픽 관리 | ✅ | 2026-09-04 | GKE Gateway API 도입, 외부 IP 35.216.118.49로 /health·/version 200 OK 확인 |
 | ch5 | 5.3 무중단 배포 | ⬜ | | |
 | ch6 | 6.1 캐시 | ⬜ | | |
 | ch6 | 6.2 시크릿 관리 | ⬜ | | |
@@ -47,6 +47,7 @@
 | 메트릭 모니터링 | Prometheus + Grafana (kube-prometheus-stack) | Datadog, CloudWatch, GCP Monitoring | 오픈소스 표준·비용 0원, Helm 번들로 6개 컴포넌트 일괄 설치, 이후 Loki/Tempo와 Grafana 하나로 통합 가능 |
 | 로그 수집 | Loki + Fluent Bit (fluent/fluent-bit 차트) | ELK, CloudWatch Logs, GCP Logging | 경량(~200Mi 총합)으로 e2-medium 감당 가능, Grafana에서 메트릭·로그 동시 조회, 라벨 인덱싱으로 저장 비용 낮음 |
 | 알림 방식 | PrometheusRule + Alertmanager | Grafana Alerting, PagerDuty, GCP Cloud Monitoring | GitOps 흐름 유지(YAML → Git → ArgoCD 동기화), 4.2에서 이미 설치돼 추가 비용 0, git blame으로 임계값 근거 추적 가능 |
+| 외부 트래픽 관리 | Gateway API (gke-l7-regional-external-managed) | Ingress NGINX, Istio, Traefik | GKE 네이티브라 Controller 설치·유지 리소스 0, Gateway/HTTPRoute 역할 분리, 5.3 Blue/Green에서 backendRefs weight로 자연 확장 |
 
 ## 현재 버전
 
@@ -59,6 +60,7 @@
 | Loki | chart 7.3.0 / app 3.6.12 (SingleBinary) | 2026-09-04 설치. schemaConfig v13 명시, useTestSchema 제거, backend/read/write replicas=0 |
 | Fluent Bit | chart 0.58.1 / app 5.1.1 (DaemonSet) | 2026-09-04 설치. grafana/fluent-bit는 deprecated + image override 불가로 공식 fluent/fluent-bit 차트로 전환. Read_from_Head On으로 기존 로그도 수집 |
 | PrometheusRule | notiflex-alerts (3 rules) | 2026-09-04 4.4에서 pod-restart-alert.yaml 배포: PodRestartTooMany, NotiflexHighCpu, NotiflexAlertPipelineTest(검증용). Alertmanager receiver는 null (Slack 미연결) |
+| Gateway API | Gateway v1 + HealthCheckPolicy v1 | 2026-09-04 5.2에서 도입. GatewayClass=gke-l7-regional-external-managed, 외부 IP=35.216.118.49. HealthCheckPolicy로 /health:8080 헬스체크 지정(기본 / 프로브 시 no healthy upstream 회피). proxy-only-subnet(asia-northeast3, 172.16.0.0/23) 신규 생성 |
 | Kafka | | |
 | OTel SDK | | |
 
@@ -73,6 +75,8 @@
 - Region/Zone: `asia-northeast3` / `asia-northeast3-a`
 - Artifact Registry: `asia-northeast3-docker.pkg.dev/git-ai-ops-practice/notiflex`
 - kubectl context: `gke-sysnet4admin_book_gitaiops`
+- Gateway 외부 IP: `35.216.118.49` (notiflex-gateway, HTTP:80)
+- Proxy-only 서브넷: `proxy-only-subnet` (asia-northeast3, 172.16.0.0/23)
 
 ## 트러블슈팅 이력
 

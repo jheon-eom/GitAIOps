@@ -59,19 +59,19 @@ jobs:
             echo "IMAGE is empty; refusing to run sed." >&2
             exit 1
           fi
-          sed -i "s|image: asia-northeast3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/notiflex/api:.*|image: ${IMAGE}|" k8s/smb/deployment.yaml
-          echo "--- deployment.yaml image line ---"
-          grep 'image:' k8s/smb/deployment.yaml
+          sed -i "s|image: asia-northeast3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/notiflex/api:.*|image: ${IMAGE}|" k8s/smb/rollout.yaml
+          echo "--- rollout.yaml image line ---"
+          grep 'image:' k8s/smb/rollout.yaml
 
       - name: Commit and push manifest change
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet k8s/smb/deployment.yaml; then
-            echo "::notice title=No change::deployment.yaml already at ${SHA_TAG}"
+          if git diff --quiet k8s/smb/rollout.yaml; then
+            echo "::notice title=No change::rollout.yaml already at ${SHA_TAG}"
             exit 0
           fi
-          git add k8s/smb/deployment.yaml
+          git add k8s/smb/rollout.yaml
           git commit -m "chore(deploy): bump api image to ${SHA_TAG} [skip ci]"
           git push origin HEAD:main
           echo "::notice title=Manifest updated::${IMAGE}"
