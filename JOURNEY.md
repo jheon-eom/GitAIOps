@@ -14,7 +14,7 @@
 | ch2 | 2.7 첫 커밋 | ✅ | 2026-09-03 | JOURNEY.md 생성 및 최초 push |
 | ch3 | 3.2 GitOps 도구 | ✅ | 2026-09-04 | ArgoCD v3.5.2 설치, notiflex-smb Application Synced/Healthy |
 | ch3 | 3.3 기능 추가 | ✅ | 2026-09-04 | /version 엔드포인트 추가, v0.1.1 Rolling Update 완료 |
-| ch3 | 3.4 CI | ⬜ | | |
+| ch3 | 3.4 CI | ✅ | 2026-09-04 | GitHub Actions로 app/** 변경 시 이미지 자동 빌드·push, SHA 태그(sha-xxxxxxx) 방식 |
 | ch3 | 3.5 CI-CD 연결 | ⬜ | | |
 | ch4 | 4.2 메트릭 모니터링 | ⬜ | | |
 | ch4 | 4.3 로그 수집 | ⬜ | | |
@@ -43,6 +43,7 @@
 | 영역 | 선택 | 검토한 대안 | 선택 이유 |
 |------|------|-----------|----------|
 | GitOps 도구 | ArgoCD | Flux, Jenkins X, Spinnaker | Web UI로 배포 상태 시각화가 학습·실습에 유리, e2-medium 노드에서 감당 가능한 리소스(~500MB) |
+| CI 도구 | GitHub Actions | Cloud Build, GitLab CI, Jenkins | 코드가 이미 GitHub에 있어 별도 서버·플랫폼 이동 불필요, YAML 한 파일로 파이프라인 정의 |
 
 ## 현재 버전
 
