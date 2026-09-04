@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 )
 
-const version = "v0.1.1"
-
 var counter atomic.Uint64
 
 type healthResp struct {
@@ -19,11 +17,6 @@ type healthResp struct {
 type idResp struct {
 	ID  uint64 `json:"id"`
 	Pod string `json:"pod"`
-}
-
-type versionResp struct {
-	Version string `json:"version"`
-	Pod     string `json:"pod"`
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -38,17 +31,10 @@ func idHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(idResp{ID: next, Pod: pod})
 }
 
-func versionHandler(w http.ResponseWriter, r *http.Request) {
-	pod, _ := os.Hostname()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versionResp{Version: version, Pod: pod})
-}
-
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/id", idHandler)
-	mux.HandleFunc("/version", versionHandler)
 
 	addr := ":8080"
 	log.Printf("notiflex-api listening on %s", addr)
