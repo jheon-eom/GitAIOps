@@ -27,7 +27,7 @@
 | ch6 | 6.3 Canary 전환 | ✅ | 2026-09-05 | Argo Rollouts strategy를 blueGreen→canary로 교체 (20/50/80/100, 각 30s pause). v0.6.0 배포로 step 6/6 promote 확인. Basic Canary(트래픽 라우터 없음)라 실제 트래픽 분할은 stable 스왑 시점에 일어남 |
 | ch7 | 7.2 멀티 노드풀 | ✅ | 2026-09-05 | api-pool(e2-medium)/worker-pool(e2-standard-2)/ops-pool(e2-small) 각 1노드 Spot + Workload Identity. notiflex-api Rollout에 `nodeSelector: cloud.google.com/gke-nodepool=api-pool` 추가 후 커밋 push, ArgoCD 동기화 → Canary 6/6 진행 → api-pool 노드로 재배치 확인 |
 | ch7 | 7.3 App of Apps | ✅ | 2026-09-05 | argocd/root-app.yaml (directory.recurse: true) + argocd/apps/ 재구성. notiflex-smb를 apps/로 이동하며 sync-wave=2 부여. 커밋 a45090b push → root-app 부트스트랩 → notiflex-smb tracking-id가 root-app으로 인계, Pod 무중단 |
-| ch7 | 7.4 멀티테넌시 | ⬜ | | |
+| ch7 | 7.4 멀티테넌시 | ✅ | 2026-09-05 | Namespace 분리(enterprise) + RBAC(Workload Identity SA를 enterprise ns용으로 추가 바인딩) + ResourceQuota(pods:3, cpu/mem 상한). ch6.2 CSI+WI + ch7.2 api-pool + ch7.3 App of Apps 패턴을 그대로 재사용. cross-namespace DNS로 notiflex ns의 Valkey 공유 검증(/id → 20) |
 | ch8 | 8.1 메시징 | ⬜ | | |
 | ch8 | 8.2 트레이싱 | ⬜ | | |
 | ch8 | 8.3 CronJob | ⬜ | | |
@@ -55,6 +55,7 @@
 | 배포 전략 전환 (ch6.3) | Argo Rollouts Canary | Blue/Green 유지, Flagger, Istio | Blue/Green의 0%→100% 즉시 전환 대비 20/50/80/100 점진 전환으로 문제 영향 최소화. 리소스도 2x → 1.2x로 절감. 도구는 5.3에서 이미 도입한 Argo Rollouts 그대로 유지하고 `strategy` 필드만 canary로 교체 — 새 도구 도입 없이 전략만 진화 |
 | 노드 배치 (ch7.2) | nodeSelector + 멀티 노드풀 | taint/toleration, nodeAffinity, topology spread | 라벨 매칭 한 줄(YAML)만으로 배치 표현 가능. GKE가 노드풀 생성 시 `cloud.google.com/gke-nodepool` 라벨을 자동 부여해 별도 라벨 작업 불필요. taint/toleration은 이중 설정 부담, nodeAffinity는 표현식이 과해 학습 부담이 큼, topology spread는 단일 존이라 무의미 |
 | 다중 앱 관리 (ch7.3) | App of Apps (root Application) | ApplicationSet, 수동 관리 | 순수 YAML 그대로라 문법 학습 없음. 앱 5~7개 규모에 충분하고, "폴더에 YAML 넣으면 앱이 생긴다"는 GitOps 원칙에 그대로 맞음. ApplicationSet은 dev/staging/prod 등 동일 앱을 다중 환경에 뿌릴 때 강점이라 단일 클러스터인 Notiflex에는 과함. 수동 관리는 앱 누락·순서 관리가 사람의 몫이라 스케일이 어려움 |
+| 멀티테넌시 (ch7.4) | Namespace 분리 + per-tenant Rollout | 단일 namespace + 라벨 격리, NetworkPolicy 추가, vCluster, 클러스터별 분리 | K8s 기본 기능만으로 즉시 격리 가능. 7.3 App of Apps와 자연 결합(테넌트 추가 = argocd/apps/에 YAML 하나). 공유 자원(Valkey)은 cross-namespace DNS로 접근해 리소스 중복 방지. 단일 e2-medium × 5노드 클러스터에서 vCluster/별도 클러스터는 비현실적이며, NetworkPolicy는 Dataplane V2 재구성이 필요해 학습 단계 범위 밖. ResourceQuota로 노이지 네이버 완화 |
 
 ## 현재 버전
 
@@ -86,7 +87,7 @@
 | 노드풀 | 머신 타입 | 노드 수 | 주요 워크로드 |
 |--------|----------|---------|-------------|
 | default-pool | e2-medium (Spot, disk 30GB) | 2 | Valkey standalone(CPU 10m), ArgoCD, kube-prometheus-stack(축소), CSI Secrets Store DaemonSet(GKE managed, 노드당 120m), argo-rollouts controller. notiflex-api는 7.2에서 api-pool로 이동. **Loki/Fluent Bit는 ch6.2에서 임시 uninstall, ch7.2 이후 ops-pool 활용해 복원 예정** |
-| api-pool | e2-medium (Spot, disk 50GB pd-standard) | 1 | notiflex-api Rollout(1 replica, CPU 10m). 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
+| api-pool | e2-medium (Spot, disk 50GB pd-standard) | 1 | notiflex ns Rollout(1 replica, 10m) + **enterprise ns Rollout(1 replica, 10m — 7.4에서 추가)**. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
 | worker-pool | e2-standard-2 (Spot, disk 50GB pd-standard) | 1 | (예약) ch8.1 Kafka 등 워커 대상. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
 | ops-pool | e2-small (Spot, disk 50GB pd-standard) | 1 | (예약) Prometheus/Grafana/Loki/Fluent Bit 등 운영 도구 대상. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
 
