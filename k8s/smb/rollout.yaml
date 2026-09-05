@@ -27,6 +27,8 @@ spec:
         app: notiflex-api
     spec:
       serviceAccountName: notiflex-api
+      nodeSelector:
+        cloud.google.com/gke-nodepool: api-pool
       containers:
         - name: api
           image: asia-northeast3-docker.pkg.dev/git-ai-ops-practice/notiflex/api:sha-954b417
