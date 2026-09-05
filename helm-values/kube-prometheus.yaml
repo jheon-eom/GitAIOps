@@ -2,7 +2,7 @@ prometheus:
   prometheusSpec:
     resources:
       requests:
-        cpu: 100m
+        cpu: 5m
         memory: 256Mi
       limits:
         memory: 512Mi
@@ -13,7 +13,7 @@ grafana:
   adminPassword: prom-operator
   resources:
     requests:
-      cpu: 50m
+      cpu: 5m
       memory: 128Mi
     limits:
       memory: 512Mi
@@ -33,7 +33,7 @@ alertmanager:
   alertmanagerSpec:
     resources:
       requests:
-        cpu: 25m
+        cpu: 5m
         memory: 64Mi
       limits:
         memory: 128Mi
@@ -41,7 +41,7 @@ alertmanager:
 prometheusOperator:
   resources:
     requests:
-      cpu: 25m
+      cpu: 5m
       memory: 64Mi
     limits:
       memory: 128Mi
