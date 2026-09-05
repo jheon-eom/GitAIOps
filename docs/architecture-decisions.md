@@ -55,3 +55,27 @@
 - **CRD 기반**: YAML 선언으로 배포 전략 정의, GitOps 호환
 - **점진적 진화**: 5장 Blue/Green → 6장 Canary로 전략을 바꿀 때 Rollout CRD의 `strategy` 필드만 수정하면 됨
 - **kubectl 플러그인**: `kubectl argo rollouts status`로 배포 진행 상태를 실시간 모니터링. active/preview Service 분리로 QA 창구 확보
+
+## ADR-008: 캐시/상태 공유 저장소로 Valkey 채택 (6장)
+**시점**: 2026-09 / **결정**: Pod 간 상태 공유를 위해 Valkey(standalone)를 채택하고 Redis, Memcached, DragonflyDB는 채택하지 않음
+**이유**:
+- **라이선스 안전**: Redis는 2024년 SSPL로 전환되어 상용 서비스에 제약이 생겼지만 Valkey는 Linux Foundation 산하 BSD 라이선스라 상용 리스크 없음
+- **Redis 완전 호환**: 명령어·클라이언트가 100% 동일해서 기존 Redis 지식·라이브러리(valkey-go)를 그대로 재사용, 학습 곡선 0
+- **INCR + 영속성 동시 만족**: `/id` 엔드포인트가 원자적 카운터를 요구하고 재시작 후에도 유지되어야 함. Memcached는 영속성 부재로 부적합
+- **Bitnami Helm 차트 성숙**: `helm install valkey bitnami/valkey`로 standalone 즉시 배포, CPU 10m만으로 e2-medium 노드에서 감당 가능
+
+## ADR-009: 시크릿 관리로 GKE Secret Manager CSI + Workload Identity 채택 (6장)
+**시점**: 2026-09 / **결정**: 시크릿을 GCP Secret Manager에 저장하고 Secrets Store CSI Driver(GKE addon)로 Pod에 파일 마운트, Workload Identity로 SA 키 없이 인증. Sealed Secrets, External Secrets Operator, kubectl K8s Secret은 채택하지 않음
+**이유**:
+- **GKE 네이티브 통합**: `--enable-secret-manager` addon만으로 CSI Driver 배포 완료, 별도 Operator 유지·업그레이드 부담 없음
+- **SA 키 파일 불필요**: Workload Identity로 K8s SA ↔ GCP SA를 OIDC 토큰 방식으로 매핑, JSON 키 파일 배포·회수·유출 리스크 제거
+- **원본 단일화**: Secret Manager가 유일한 진실 소스이며 GCP의 감사 로그·자동 회전·IAM 기반 접근 제어를 그대로 활용
+- **GitOps 호환**: SecretProviderClass·ServiceAccount만 Git에 커밋하면 실제 비밀번호는 저장소에 남지 않음. Sealed Secrets는 개인키 관리 부담, ESO는 별도 Operator 필요
+
+## ADR-010: 배포 전략을 Blue/Green에서 Canary로 진화 (6장)
+**시점**: 2026-09 / **결정**: Argo Rollouts의 `strategy` 필드를 `blueGreen`에서 `canary`(steps 20/50/80/100, 각 30s pause)로 교체. Blue/Green 유지, Flagger, Istio는 채택하지 않음
+**이유**:
+- **문제 영향 범위 최소화**: Blue/Green의 0%→100% 즉시 전환은 promote 직후 오류가 전체 사용자에게 노출됨. Canary의 점진 전환은 첫 단계에 소수 사용자만 영향받고 abort로 즉시 회수 가능
+- **리소스 절감**: Blue/Green은 항상 2x 리소스 필요, Canary는 약 1.2x로 e2-medium 2노드 제약 환경에 더 적합 (ch6 CSI 도입 이후 CPU가 특히 빠듯)
+- **도구 변경 없음**: 5.3에서 이미 도입한 Argo Rollouts 그대로 유지, Rollout CRD의 `strategy` 필드만 교체. Flagger는 Flux 생태계라 이중 관리, Istio는 서비스 메시 도입 부담이 큼
+- **점진적 진화 학습**: Rolling → Blue/Green → Canary로 같은 도구 위에서 전략을 진화시키는 이 책의 핵심 패턴을 완성
