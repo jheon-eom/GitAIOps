@@ -1,7 +1,7 @@
 # Notiflex 아키텍처 스냅샷
 
-**작성 시점**: 2026-09-05 (ch6.4)
-**책 진도**: ch6 완료 (캐시·시크릿·Canary 도입)
+**작성 시점**: 2026-09-05 (ch7.4)
+**책 진도**: ch7 완료 (멀티 노드풀·App of Apps·멀티테넌시)
 **구성**: 컴포넌트 → 연결 → 설정 순으로 읽으면 시스템을 한번에 파악 가능
 
 ## 3층 지식 구조
@@ -27,19 +27,21 @@
 |------|-----|
 | 클러스터 | `notiflex-cluster` (GKE Standard, Zonal) |
 | 리전/존 | `asia-northeast3` / `asia-northeast3-a` |
-| 노드풀 | `default-pool` — e2-medium, **Spot**, 2 노드 |
-| Workload Identity | `git-ai-ops-practice.svc.id.goog` (ch6.2 활성화) |
+| 노드풀 | `default-pool` e2-medium ×2 · `api-pool` e2-medium ×1 · `worker-pool` e2-standard-2 ×1 · `ops-pool` e2-small ×1 (모두 **Spot**, ch7.2 확장) |
+| Workload Identity | `git-ai-ops-practice.svc.id.goog` (ch6.2 활성화, 모든 노드풀에 `--workload-metadata=GKE_METADATA`) |
 | Secret Manager CSI | GKE addon, driver=`secrets-store-gke.csi.k8s.io` |
 | Gateway API | GKE managed `gke-l7-regional-external-managed` |
 | Artifact Registry | `asia-northeast3-docker.pkg.dev/git-ai-ops-practice/notiflex` |
 | kubectl context | `gke-sysnet4admin_book_gitaiops` |
 
-### 1.2 애플리케이션 (notiflex namespace)
+### 1.2 애플리케이션 (notiflex namespace — SMB 테넌트)
+
+모든 Rollout Pod은 `nodeSelector: cloud.google.com/gke-nodepool=api-pool`로 api-pool에 고정 (ch7.2).
 
 | 컴포넌트 | 종류 | 관리 | 상세 |
 |---------|------|------|------|
-| `notiflex-api` | Rollout (Canary) | ArgoCD | image `api:sha-954b417` (v0.6.0), replicas=1, SA=`notiflex-api` |
-| `valkey-primary` | StatefulSet | Helm | chart `bitnami/valkey-6.2.19` (app 9.1.2), standalone, replicas=1 |
+| `notiflex-api` | Rollout (Canary) | ArgoCD | image `api:sha-954b417` (v0.6.0), replicas=1, SA=`notiflex-api`, nodeSelector=api-pool |
+| `valkey-primary` | StatefulSet | Helm | chart `bitnami/valkey-6.2.19` (app 9.1.2), standalone, replicas=1 (default-pool) |
 | `notiflex-secrets` | SecretProviderClass | ArgoCD | provider=`gke`, ref=`projects/.../secrets/valkey-password/versions/latest` |
 | `notiflex-api` (Service) | ClusterIP | ArgoCD | stable Service — Canary의 stableService, port 80→8080 |
 | `notiflex-api-preview` | ClusterIP | ArgoCD | canary Service — Canary의 canaryService |
@@ -48,11 +50,23 @@
 | `notiflex-healthcheck` | HealthCheckPolicy | ArgoCD | HTTP :8080 `/health`, interval 15s, threshold 2/1, timeout 5s |
 | `notiflex-api` (SA) | ServiceAccount | ArgoCD | WI annotation → GCP SA `notiflex-secret-reader` |
 
+### 1.2b 애플리케이션 (enterprise namespace — Enterprise 테넌트, ch7.4 신규)
+
+| 컴포넌트 | 종류 | 관리 | 상세 |
+|---------|------|------|------|
+| `notiflex-api` | Rollout (Canary) | ArgoCD (App=`notiflex-enterprise`) | 동일 이미지 `api:sha-954b417`, replicas=1, nodeSelector=api-pool |
+| `notiflex-api`, `notiflex-api-preview` | ClusterIP | ArgoCD | SMB와 이름 동일, ns 격리로 충돌 없음. Gateway/HTTPRoute 없음 (내부 전용) |
+| `notiflex-api` (SA) | ServiceAccount | ArgoCD | 같은 GSA `notiflex-secret-reader`에 추가 WI 바인딩 |
+| `notiflex-secrets` | SecretProviderClass | ArgoCD | notiflex ns와 동일 GSM secret 참조 |
+| `enterprise-quota` | ResourceQuota | ArgoCD | pods 3, requests.cpu 100m, requests.memory 128Mi, limits.cpu 500m, limits.memory 256Mi |
+
+Valkey는 notiflex ns의 인스턴스를 `valkey-primary.notiflex.svc.cluster.local:6379` cross-namespace DNS로 공유.
+
 ### 1.3 배포·GitOps (argocd, argo-rollouts namespaces)
 
 | 컴포넌트 | 종류 | 관리 | 상세 |
 |---------|------|------|------|
-| ArgoCD (7종) | Deployment/STS | 수동 설치 | v3.5.2, Application `notiflex-smb` 하나만 등록 (path=`k8s/smb`) |
+| ArgoCD (7종) | Deployment/STS | 수동 설치 | v3.5.2, App of Apps 구조 — `root-app`(수동 부트스트랩)이 `argocd/apps/` 감시 → `notiflex-smb`, `notiflex-enterprise` 자동 관리 (ch7.3) |
 | `argo-rollouts` | Deployment | 수동 설치 | v1.10.0, `--server-side` apply로 CRD 등록 |
 | GitHub Actions | 외부 CI | 저장소 | `app/**` 변경 시 build+push, 후속 job에서 rollout.yaml image line 자동 커밋 |
 
@@ -199,11 +213,11 @@ Argo Rollouts controller
 ```
 
 **관리 경계**
-- **ArgoCD 소유**: `k8s/smb/` 내 모든 매니페스트 (9개 리소스)
+- **ArgoCD 소유**: `k8s/smb/` (9개, notiflex ns) + `k8s/enterprise/` (6개, enterprise ns). 루트는 `root-app`이 `argocd/apps/` 감시
 - **Helm 소유** (ArgoCD 밖): `valkey` (notiflex), `kube-prometheus` (monitoring)
 - **GKE 시스템**: CSI Secrets Store DaemonSet, gke-metadata-server, kube-dns, GKE Managed Prometheus (gmp-system)
 
-**ch7.3 App of Apps에서 helm 릴리스들도 ArgoCD 관리로 통합 예정.**
+**향후**: helm 릴리스(kube-prometheus, valkey, 향후 Kafka/Tempo)를 wave=1 플랫폼 App으로 ArgoCD에 편입 예정. 새 앱 추가 = `argocd/apps/`에 YAML 하나 커밋.
 
 ---
 
@@ -256,6 +270,7 @@ primary:
 
 **이 GCP SA에 대한 impersonation 허용**
 - Member: `serviceAccount:git-ai-ops-practice.svc.id.goog[notiflex/notiflex-api]`
+- Member: `serviceAccount:git-ai-ops-practice.svc.id.goog[enterprise/notiflex-api]` (ch7.4 추가)
 - Role: `roles/iam.workloadIdentityUser`
 
 **K8s SA `notiflex/notiflex-api` annotation**
@@ -282,16 +297,20 @@ parameters:
 | kube-state-metrics | 10m | 64Mi | |
 | node-exporter | 10m | 64Mi | DaemonSet |
 
-### 3.7 ArgoCD Application (notiflex-smb)
+### 3.7 ArgoCD App of Apps 구조
 
-| 필드 | 값 |
-|------|-----|
-| repoURL | `https://github.com/jheon-eom/notiflex-platform.git` |
-| path | `k8s/smb` |
-| targetRevision | `main` |
-| destination | `https://kubernetes.default.svc`, namespace=`notiflex` |
-| syncPolicy | automated (prune=true, selfHeal=true), CreateNamespace=true |
-| 관리 리소스 수 | 9개 (Namespace, Service×2, Rollout, Gateway, HTTPRoute, HealthCheckPolicy, ServiceAccount, SecretProviderClass) |
+| Application | path | dest namespace | sync-wave | 관리 대상 |
+|-------------|------|----------------|-----------|-----------|
+| `root-app` | `argocd/apps` (directory.recurse) | `argocd` | (수동 부트스트랩) | 하위 Application들 자체 |
+| `notiflex-smb` | `k8s/smb` | `notiflex` | `2` (앱) | Namespace, Service×2, Rollout, Gateway, HTTPRoute, HealthCheckPolicy, SA, SPC (9개) |
+| `notiflex-enterprise` | `k8s/enterprise` | `enterprise` | `2` (앱) | Rollout, Service×2, SA, SecretProviderClass, ResourceQuota (6개, Namespace는 CreateNamespace=true 위임) |
+
+**sync-wave 규약** (`argocd/root-app.yaml` 상단에 코드화)
+- `0` = 인프라 (Gateway API/전역 Namespace/Quota 등)
+- `1` = 플랫폼 (monitoring, messaging, tracing — 향후)
+- `2` = 애플리케이션 (테넌트 워크로드)
+
+모든 하위 Application은 `syncPolicy.automated.{prune,selfHeal}=true`, `syncOptions=[CreateNamespace=true]`.
 
 ### 3.8 CI (GitHub Actions `build-and-push`)
 
@@ -307,19 +326,19 @@ parameters:
 
 ## 4. 현재 배포 상태 (요약)
 
-- **앱**: notiflex-api v0.6.0 (`sha-954b417`), Canary, replicas=1, Healthy
-- **캐시**: Valkey 9.1.2, `notiflex:id` 카운터 저장
-- **시크릿**: `valkey-password` GSM v1 → CSI로 `/mnt/secrets/valkey-password` 마운트
-- **외부 IP**: 35.216.118.49
-- **ArgoCD Application**: `notiflex-smb` Synced/Healthy
+- **앱**: notiflex-api v0.6.0 (`sha-954b417`), Canary, replicas=1, Healthy — SMB(notiflex ns) + Enterprise(enterprise ns) 두 테넌트에 동시 배포, 둘 다 api-pool 위
+- **캐시**: Valkey 9.1.2 (notiflex ns), `notiflex:id` 카운터를 SMB·Enterprise 두 테넌트가 cross-namespace DNS로 공유
+- **시크릿**: `valkey-password` GSM v1 → CSI로 두 ns 모두 `/mnt/secrets/valkey-password` 마운트 (WI 바인딩 확장)
+- **노드**: 5개 (default×2, api×1, worker×1, ops×1) — 모두 Spot
+- **외부 IP**: 35.216.118.49 (notiflex-gateway, 현재는 SMB 테넌트만 노출)
+- **ArgoCD Applications**: `root-app`, `notiflex-smb`, `notiflex-enterprise` 모두 Synced/Healthy
 
 ## 5. 앞으로 예정된 구조 변화
 
 | 챕터 | 변화 |
 |------|------|
-| ch7.2 | 역할별 노드풀 추가 → Loki/Fluent Bit 복원 + Rollout replicas 2 복원 |
-| ch7.3 | App of Apps로 valkey·kube-prometheus 등 helm 릴리스를 ArgoCD 관리로 통합 |
-| ch7.4 | 테넌트별 Namespace 분리 |
-| ch8.1 | Kafka (Strimzi operator) 도입 |
+| (미정) | Loki/Fluent Bit 복원을 wave=1 플랫폼 App으로 편입 (ops-pool 활용) |
+| (미정) | valkey/kube-prometheus를 wave=1 플랫폼 App으로 ArgoCD 관리에 통합 |
+| ch8.1 | Kafka (Strimzi operator) 도입 — worker-pool에 배치 예정 |
 | ch8.2 | Tempo + OTel SDK로 트레이싱 |
 | ch8.3 | 헬스체크 CronJob |

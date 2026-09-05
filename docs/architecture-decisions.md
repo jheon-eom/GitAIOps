@@ -79,3 +79,27 @@
 - **리소스 절감**: Blue/Green은 항상 2x 리소스 필요, Canary는 약 1.2x로 e2-medium 2노드 제약 환경에 더 적합 (ch6 CSI 도입 이후 CPU가 특히 빠듯)
 - **도구 변경 없음**: 5.3에서 이미 도입한 Argo Rollouts 그대로 유지, Rollout CRD의 `strategy` 필드만 교체. Flagger는 Flux 생태계라 이중 관리, Istio는 서비스 메시 도입 부담이 큼
 - **점진적 진화 학습**: Rolling → Blue/Green → Canary로 같은 도구 위에서 전략을 진화시키는 이 책의 핵심 패턴을 완성
+
+## ADR-011: 워크로드별 노드 배치를 nodeSelector + 멀티 노드풀로 결정 (7장)
+**시점**: 2026-09 / **결정**: `api-pool`(e2-medium)·`worker-pool`(e2-standard-2)·`ops-pool`(e2-small) 3개 노드풀을 신설하고 Pod의 `nodeSelector: cloud.google.com/gke-nodepool=<pool>` 로 배치. taint/toleration, nodeAffinity, topology spread는 채택하지 않음
+**이유**:
+- **최소 학습 곡선**: 라벨 매칭 한 줄만 추가하면 되어 taint/toleration의 이중 설정 부담이나 nodeAffinity의 표현식 학습이 불필요
+- **GKE 자동 라벨 활용**: 노드풀 생성 시 `cloud.google.com/gke-nodepool` 라벨이 자동 부여되어 별도 라벨 작업이 없고, 잘못된 커스텀 키 사용으로 인한 Pod Pending 사고를 원천 차단
+- **리소스 격리**: Kafka(예정) 같은 메모리 대량 워커가 API Pod의 자원을 잠식하는 상황을 물리 분리로 해결하여 서비스 안정성 확보
+- **단일 존 환경 적합**: `asia-northeast3-a` 단일 존이라 topology spread의 AZ 분산 이점이 없고, vCluster/별도 클러스터는 5노드 규모에 과함
+
+## ADR-012: 다중 앱 관리로 App of Apps 패턴 채택 (7장)
+**시점**: 2026-09 / **결정**: `argocd/root-app.yaml`이 `argocd/apps/` 디렉터리를 `directory.recurse: true`로 감시하고, sync-wave 규약(0=인프라 / 1=플랫폼 / 2=애플리케이션)으로 순서를 강제. ApplicationSet과 수동 관리는 채택하지 않음
+**이유**:
+- **순수 YAML, 문법 학습 없음**: 템플릿 문법 없이 Application 매니페스트를 폴더에 넣기만 하면 앱이 생성되어 학습·디버깅 부담이 최소
+- **GitOps 원칙 충실**: "폴더에 YAML 추가 = 앱 추가" 흐름으로 사람의 `kubectl apply` 개입을 제거하고 Git이 유일한 진실 소스가 됨
+- **sync-wave로 의존성 명시**: 앞 wave가 Healthy 되어야 다음 wave가 시작되어 인프라·플랫폼·앱 순서를 매니페스트로 표현 가능. 별도 대기 로직 불필요
+- **규모 적합**: 관리 대상 앱이 5~7개 수준이라 ApplicationSet의 Generator 기반 대량 생성 이점이 없고, 단일 클러스터라 다중 환경 템플릿 필요성도 없음
+
+## ADR-013: 멀티테넌시로 Namespace 분리 + per-tenant Rollout 채택 (7장)
+**시점**: 2026-09 / **결정**: 테넌트별 Namespace(예: `enterprise`) + 전용 Rollout/Service/SA/SecretProviderClass + ResourceQuota. Valkey 같은 공유 인프라는 cross-namespace DNS로 접근. 단일 namespace + 라벨 격리, NetworkPolicy 추가, vCluster, 클러스터별 분리는 채택하지 않음
+**이유**:
+- **K8s 기본 기능만으로 즉시 격리**: Namespace + RBAC + ResourceQuota는 추가 도구 설치 없이 K8s 표준 API로 구성 가능하여 학습·운영 부담이 최소
+- **기존 자산 재활용**: ch6.2 CSI+WI(테넌트 SA를 동일 GSA에 추가 바인딩), ch7.2 api-pool nodeSelector, ch7.3 App of Apps + sync-wave 를 그대로 결합하여 새 도구 도입 없이 온보딩 완료
+- **공유 인프라 실전 학습**: `valkey-primary.notiflex.svc.cluster.local` 형태의 cross-namespace DNS로 공유 자원을 재사용하여 리소스 중복 없이 실제 SaaS 패턴 경험
+- **격리 강도 vs 비용 균형**: 단일 e2-medium × 5노드 클러스터에서 vCluster는 최소 100~300MB 오버헤드, 별도 클러스터는 비용 2배+. NetworkPolicy는 Dataplane V2 재구성이 필요해 학습 단계 범위 밖. ResourceQuota로 노이지 네이버는 완화
