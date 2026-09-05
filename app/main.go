@@ -6,12 +6,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/valkey-io/valkey-go"
 )
 
-const version = "v0.4.0"
+const version = "v0.5.0"
 
 var valkeyClient valkey.Client
 
@@ -60,6 +61,18 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"pong":"ok"}`))
 }
 
+func loadValkeyPassword() string {
+	if pwFile := os.Getenv("VALKEY_PASSWORD_FILE"); pwFile != "" {
+		if data, err := os.ReadFile(pwFile); err == nil {
+			log.Printf("valkey password loaded from file: %s", pwFile)
+			return strings.TrimSpace(string(data))
+		} else {
+			log.Printf("VALKEY_PASSWORD_FILE 읽기 실패 (%s): %v — env로 폴백", pwFile, err)
+		}
+	}
+	return os.Getenv("VALKEY_PASSWORD")
+}
+
 func connectValkey() valkey.Client {
 	addr := os.Getenv("VALKEY_ADDR")
 	if addr == "" {
@@ -67,7 +80,7 @@ func connectValkey() valkey.Client {
 	}
 	opt := valkey.ClientOption{
 		InitAddress: []string{addr},
-		Password:    os.Getenv("VALKEY_PASSWORD"),
+		Password:    loadValkeyPassword(),
 	}
 
 	var client valkey.Client
