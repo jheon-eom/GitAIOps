@@ -27,6 +27,14 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: VALKEY_ADDR
+              value: valkey-primary.notiflex.svc.cluster.local:6379
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey
+                  key: valkey-password
           readinessProbe:
             httpGet:
               path: /health
