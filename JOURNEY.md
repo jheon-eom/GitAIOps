@@ -24,7 +24,7 @@
 | ch5 | 5.4 ADR 기록 | ✅ | 2026-09-04 | docs/architecture-decisions.md 신설, ADR-001~007로 3~5장 결정 정리 |
 | ch6 | 6.1 캐시 | ✅ | 2026-09-05 | Valkey standalone 도입, /id를 Valkey INCR로 이전. v0.4.0. 리소스 여유 확보 위해 replicas 2→1로 축소. Pod 재시작 후 카운터(11부터) 유지 확인 |
 | ch6 | 6.2 시크릿 관리 | ✅ | 2026-09-05 | GCP Secret Manager + CSI Driver + Workload Identity 도입. v0.5.0. Valkey password를 GSM에 저장하고 Pod에 파일(/mnt/secrets/valkey-password)로 마운트. SA 키 없이 동작 |
-| ch6 | 6.3 Canary 전환 | ⬜ | | |
+| ch6 | 6.3 Canary 전환 | ✅ | 2026-09-05 | Argo Rollouts strategy를 blueGreen→canary로 교체 (20/50/80/100, 각 30s pause). v0.6.0 배포로 step 6/6 promote 확인. Basic Canary(트래픽 라우터 없음)라 실제 트래픽 분할은 stable 스왑 시점에 일어남 |
 | ch7 | 7.2 멀티 노드풀 | ⬜ | | |
 | ch7 | 7.3 App of Apps | ⬜ | | |
 | ch7 | 7.4 멀티테넌시 | ⬜ | | |
@@ -52,20 +52,21 @@
 | 무중단 배포 전략 | Argo Rollouts (Blue/Green) | Flagger, K8s Rolling Update | ArgoCD와 같은 Argo 생태계로 UI 통합, Rollout CRD strategy만 교체하면 6장 Canary로 진화 가능, kubectl 플러그인으로 실시간 관찰 |
 | 캐시/상태 공유 (ch6.1) | Valkey | Redis, Memcached, DragonflyDB | Redis 100% 호환 + BSD 라이선스로 상용 리스크 제거. Bitnami Helm 차트로 standalone 즉시 배포, CPU 50m만 사용. Redis는 SSPL 라이선스 부담, Memcached는 영속성 부재, DragonflyDB는 아직 미성숙 |
 | 시크릿 관리 (ch6.2) | GKE Secret Manager CSI + Workload Identity | Sealed Secrets, External Secrets Operator, kubectl Secret | GKE 네이티브 통합으로 CSI addon 활성화만으로 도입, Workload Identity로 SA 키 파일 불필요, GCP Secret Manager가 원본(감사 로그·자동 회전 활용). Sealed Secrets는 클라우드 종속성 없지만 개인키 관리 부담, ESO는 별도 Operator 유지 필요 |
+| 배포 전략 전환 (ch6.3) | Argo Rollouts Canary | Blue/Green 유지, Flagger, Istio | Blue/Green의 0%→100% 즉시 전환 대비 20/50/80/100 점진 전환으로 문제 영향 최소화. 리소스도 2x → 1.2x로 절감. 도구는 5.3에서 이미 도입한 Argo Rollouts 그대로 유지하고 `strategy` 필드만 canary로 교체 — 새 도구 도입 없이 전략만 진화 |
 
 ## 현재 버전
 
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
-| Notiflex 이미지 | sha-c17a1ed (v0.5.0) | 2026-09-05 6.2에서 valkey password를 파일로 로드. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 첫 승격) → sha-afbc9b9(CI, 5.3 Blue/Green 관찰 시연) → sha-b1962d9(CI, 6.1 Valkey INCR 통합) → sha-c17a1ed(CI, 6.2 CSI Secret 통합) |
+| Notiflex 이미지 | sha-954b417 (v0.6.0) | 2026-09-05 6.3에서 Canary 전환 검증용 배포. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 첫 승격) → sha-afbc9b9(CI, 5.3 Blue/Green 관찰 시연) → sha-b1962d9(CI, 6.1 Valkey INCR 통합) → sha-c17a1ed(CI, 6.2 CSI Secret 통합) → sha-954b417(CI, 6.3 Canary 20/50/80/100) |
 | ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
 | kube-prometheus-stack | chart 89.2.0 (operator v0.93.1) / Prometheus v3.14.0 / Grafana 13.2.1 / Alertmanager v0.34.0 | 2026-09-04 설치. Prometheus 100m/256Mi, Alertmanager 25m/64Mi 초기값 (ch6 CSI 대비 임시). Grafana는 4.3에서 sidecar.datasources 활성화 + OOMKilled로 memory limit 256→512Mi 상향 |
 | Loki | chart 7.3.0 / app 3.6.12 (SingleBinary) | 2026-09-04 설치. schemaConfig v13 명시, useTestSchema 제거, backend/read/write replicas=0 |
 | Fluent Bit | chart 0.58.1 / app 5.1.1 (DaemonSet) | 2026-09-04 설치. grafana/fluent-bit는 deprecated + image override 불가로 공식 fluent/fluent-bit 차트로 전환. Read_from_Head On으로 기존 로그도 수집 |
 | PrometheusRule | notiflex-alerts (3 rules) | 2026-09-04 4.4에서 pod-restart-alert.yaml 배포: PodRestartTooMany, NotiflexHighCpu, NotiflexAlertPipelineTest(검증용). Alertmanager receiver는 null (Slack 미연결) |
 | Gateway API | Gateway v1 + HealthCheckPolicy v1 | 2026-09-04 5.2에서 도입. GatewayClass=gke-l7-regional-external-managed, 외부 IP=35.216.118.49. HealthCheckPolicy로 /health:8080 헬스체크 지정(기본 / 프로브 시 no healthy upstream 회피). proxy-only-subnet(asia-northeast3, 172.16.0.0/23) 신규 생성 |
-| Argo Rollouts | controller v1.10.0 / plugin v1.9.0 | 2026-09-04 5.3에서 도입. install.yaml은 `--server-side` 필수(CRD annotation size 초과 회피). Rollout strategy=BlueGreen, autoPromotionSeconds=30. 앞으로 6.3 Canary 전환 시 strategy 필드만 교체. 6.1에서 replicas 2→1 축소(리소스 확보) |
+| Argo Rollouts | controller v1.10.0 / plugin v1.9.0 | 2026-09-04 5.3에서 도입. install.yaml은 `--server-side` 필수. **6.3에서 strategy=BlueGreen→Canary로 교체** (steps 20/pause 30s/50/pause 30s/80/pause 30s). 트래픽 라우터 없이 Basic Canary(stableService/canaryService만 지정) — Gateway API 트래픽 관리 플러그인은 미도입, weight는 논리적 진행만 |
 | Valkey | Bitnami chart 6.2.19 / app 9.1.2 (standalone) | 2026-09-05 6.1에서 도입. architecture=standalone, resourcesPreset=none. 6.2에서 CPU 50m→10m로 재축소 (CSI DaemonSet 240m 추가에 대응). Service=`valkey-primary.notiflex.svc.cluster.local:6379` |
 | valkey-go | v1.0.77 | 2026-09-05 Go valkey-go 클라이언트 도입. 10회×3s 재시도 로직으로 DNS/Valkey 기동 순서 이슈 방어 |
 | Workload Identity | git-ai-ops-practice.svc.id.goog | 2026-09-05 6.2에서 클러스터+default-pool에 활성화 (5-10분 소요). K8s SA `notiflex/notiflex-api` ↔ GCP SA `notiflex-secret-reader@git-ai-ops-practice.iam` 매핑 |
@@ -114,3 +115,4 @@
 | 6.2 | `helm upgrade valkey --set primary.resources.requests.cpu=10m` 이후에도 새로 만들어지는 valkey-primary-0이 여전히 CPU 50m을 요청. StatefulSet의 `currentRevision`이 갱신되지 않아 새 spec을 사용하지 않음 | `kubectl delete sts valkey-primary --cascade=orphan` 후 `helm upgrade` 재실행. PVC는 보존되어 데이터 유지, 새 StatefulSet이 10m spec으로 Pod 재생성 |
 | 6.2 | Rollout Blue/Green 진행 중 이전 ReplicaSet(구 spec, 50m)의 Pod가 반복 재생성되며 노드 자원 점유, 신규 preview Pod가 valkey 연결 실패로 CrashLoopBackOff | `kubectl scale rs <old-rs>` 로 이전 ReplicaSet을 0으로 축소해 CPU 확보 → valkey 스케줄 성공 → preview Ready → 자동 promote 완료 |
 | 6.2 | 앱이 scratch 베이스라 `kubectl exec` 시 `sh`/`ls` 실행 파일이 없어 CSI 마운트 파일을 직접 확인 불가 | Pod 로그의 `valkey password loaded from file: /mnt/secrets/valkey-password` 라인과 `kubectl get secretproviderclasspodstatuses`로 대체 검증. 필요 시 debug pod(busybox/alpine)를 별도로 띄워 마운트를 확인 |
+| 6.3 | Canary steps가 20/50/80을 순차 통과했음에도 각 단계에서 트래픽 샘플(v0.5 vs v0.6) 분할이 관찰되지 않음. 승격 완료 직후에만 v0.6로 완전 스왑됨 | 원인: 트래픽 라우터 플러그인(예: rollouts-plugin-trafficrouter-gateway-api)을 설치하지 않은 Basic Canary 모드에서는 stableService selector가 항상 stable Pod만 잡기 때문. Gateway API 플러그인을 도입해야 setWeight가 실제 트래픽 weight로 매핑됨. 학습 단계에선 step 진행 자체를 관찰하는 것으로 충분 |
