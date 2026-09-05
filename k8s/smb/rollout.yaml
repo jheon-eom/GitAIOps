@@ -8,11 +8,16 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    blueGreen:
-      activeService: notiflex-api
-      previewService: notiflex-api-preview
-      autoPromotionEnabled: true
-      autoPromotionSeconds: 30
+    canary:
+      stableService: notiflex-api
+      canaryService: notiflex-api-preview
+      steps:
+        - setWeight: 20
+        - pause: {duration: 30s}
+        - setWeight: 50
+        - pause: {duration: 30s}
+        - setWeight: 80
+        - pause: {duration: 30s}
   selector:
     matchLabels:
       app: notiflex-api
