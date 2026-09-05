@@ -25,8 +25,8 @@
 | ch6 | 6.1 캐시 | ✅ | 2026-09-05 | Valkey standalone 도입, /id를 Valkey INCR로 이전. v0.4.0. 리소스 여유 확보 위해 replicas 2→1로 축소. Pod 재시작 후 카운터(11부터) 유지 확인 |
 | ch6 | 6.2 시크릿 관리 | ✅ | 2026-09-05 | GCP Secret Manager + CSI Driver + Workload Identity 도입. v0.5.0. Valkey password를 GSM에 저장하고 Pod에 파일(/mnt/secrets/valkey-password)로 마운트. SA 키 없이 동작 |
 | ch6 | 6.3 Canary 전환 | ✅ | 2026-09-05 | Argo Rollouts strategy를 blueGreen→canary로 교체 (20/50/80/100, 각 30s pause). v0.6.0 배포로 step 6/6 promote 확인. Basic Canary(트래픽 라우터 없음)라 실제 트래픽 분할은 stable 스왑 시점에 일어남 |
-| ch7 | 7.2 멀티 노드풀 | ⬜ | | |
-| ch7 | 7.3 App of Apps | ⬜ | | |
+| ch7 | 7.2 멀티 노드풀 | ✅ | 2026-09-05 | api-pool(e2-medium)/worker-pool(e2-standard-2)/ops-pool(e2-small) 각 1노드 Spot + Workload Identity. notiflex-api Rollout에 `nodeSelector: cloud.google.com/gke-nodepool=api-pool` 추가 후 커밋 push, ArgoCD 동기화 → Canary 6/6 진행 → api-pool 노드로 재배치 확인 |
+| ch7 | 7.3 App of Apps | ✅ | 2026-09-05 | argocd/root-app.yaml (directory.recurse: true) + argocd/apps/ 재구성. notiflex-smb를 apps/로 이동하며 sync-wave=2 부여. 커밋 a45090b push → root-app 부트스트랩 → notiflex-smb tracking-id가 root-app으로 인계, Pod 무중단 |
 | ch7 | 7.4 멀티테넌시 | ⬜ | | |
 | ch8 | 8.1 메시징 | ⬜ | | |
 | ch8 | 8.2 트레이싱 | ⬜ | | |
@@ -53,6 +53,8 @@
 | 캐시/상태 공유 (ch6.1) | Valkey | Redis, Memcached, DragonflyDB | Redis 100% 호환 + BSD 라이선스로 상용 리스크 제거. Bitnami Helm 차트로 standalone 즉시 배포, CPU 50m만 사용. Redis는 SSPL 라이선스 부담, Memcached는 영속성 부재, DragonflyDB는 아직 미성숙 |
 | 시크릿 관리 (ch6.2) | GKE Secret Manager CSI + Workload Identity | Sealed Secrets, External Secrets Operator, kubectl Secret | GKE 네이티브 통합으로 CSI addon 활성화만으로 도입, Workload Identity로 SA 키 파일 불필요, GCP Secret Manager가 원본(감사 로그·자동 회전 활용). Sealed Secrets는 클라우드 종속성 없지만 개인키 관리 부담, ESO는 별도 Operator 유지 필요 |
 | 배포 전략 전환 (ch6.3) | Argo Rollouts Canary | Blue/Green 유지, Flagger, Istio | Blue/Green의 0%→100% 즉시 전환 대비 20/50/80/100 점진 전환으로 문제 영향 최소화. 리소스도 2x → 1.2x로 절감. 도구는 5.3에서 이미 도입한 Argo Rollouts 그대로 유지하고 `strategy` 필드만 canary로 교체 — 새 도구 도입 없이 전략만 진화 |
+| 노드 배치 (ch7.2) | nodeSelector + 멀티 노드풀 | taint/toleration, nodeAffinity, topology spread | 라벨 매칭 한 줄(YAML)만으로 배치 표현 가능. GKE가 노드풀 생성 시 `cloud.google.com/gke-nodepool` 라벨을 자동 부여해 별도 라벨 작업 불필요. taint/toleration은 이중 설정 부담, nodeAffinity는 표현식이 과해 학습 부담이 큼, topology spread는 단일 존이라 무의미 |
+| 다중 앱 관리 (ch7.3) | App of Apps (root Application) | ApplicationSet, 수동 관리 | 순수 YAML 그대로라 문법 학습 없음. 앱 5~7개 규모에 충분하고, "폴더에 YAML 넣으면 앱이 생긴다"는 GitOps 원칙에 그대로 맞음. ApplicationSet은 dev/staging/prod 등 동일 앱을 다중 환경에 뿌릴 때 강점이라 단일 클러스터인 Notiflex에는 과함. 수동 관리는 앱 누락·순서 관리가 사람의 몫이라 스케일이 어려움 |
 
 ## 현재 버전
 
@@ -83,7 +85,10 @@
 
 | 노드풀 | 머신 타입 | 노드 수 | 주요 워크로드 |
 |--------|----------|---------|-------------|
-| default-pool | e2-medium (Spot, disk 30GB) | 2 | notiflex-api Rollout(1 replica, CPU 10m — ch6.2에서 재축소), Valkey standalone(CPU 10m), ArgoCD, kube-prometheus-stack(축소), CSI Secrets Store DaemonSet(GKE managed, 노드당 120m), argo-rollouts controller. **Loki/Fluent Bit는 ch6.2에서 임시 uninstall, ch7.2에서 복원 예정** |
+| default-pool | e2-medium (Spot, disk 30GB) | 2 | Valkey standalone(CPU 10m), ArgoCD, kube-prometheus-stack(축소), CSI Secrets Store DaemonSet(GKE managed, 노드당 120m), argo-rollouts controller. notiflex-api는 7.2에서 api-pool로 이동. **Loki/Fluent Bit는 ch6.2에서 임시 uninstall, ch7.2 이후 ops-pool 활용해 복원 예정** |
+| api-pool | e2-medium (Spot, disk 50GB pd-standard) | 1 | notiflex-api Rollout(1 replica, CPU 10m). 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
+| worker-pool | e2-standard-2 (Spot, disk 50GB pd-standard) | 1 | (예약) ch8.1 Kafka 등 워커 대상. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
+| ops-pool | e2-small (Spot, disk 50GB pd-standard) | 1 | (예약) Prometheus/Grafana/Loki/Fluent Bit 등 운영 도구 대상. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
 
 **GCP 컨텍스트**
 - Project: `git-ai-ops-practice`
