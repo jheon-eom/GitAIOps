@@ -30,7 +30,7 @@
 | ch7 | 7.4 멀티테넌시 | ✅ | 2026-09-05 | Namespace 분리(enterprise) + RBAC(Workload Identity SA를 enterprise ns용으로 추가 바인딩) + ResourceQuota(pods:3, cpu/mem 상한). ch6.2 CSI+WI + ch7.2 api-pool + ch7.3 App of Apps 패턴을 그대로 재사용. cross-namespace DNS로 notiflex ns의 Valkey 공유 검증(/id → 20) |
 | ch8 | 8.1 메시징 | ✅ | 2026-09-07 | Strimzi 1.2.0 + Kafka 4.3.0 (KRaft 단일 브로커, worker-pool nodeAffinity). notifications 토픽 3 partitions. notiflex-api를 sarama SyncProducer + ConsumerGroup으로 개편(v0.7.0), /id 호출 시 3개 파티션에 라운드로빈 publish, 백그라운드 consumer가 즉시 로그 출력 확인. argocd/apps/notiflex-kafka.yaml(sync-wave 1)로 App of Apps에 편입 |
 | ch8 | 8.2 트레이싱 | ✅ | 2026-09-07 | Tempo(grafana/tempo chart, monolithic, ops-pool 배치, OTLP gRPC 4317/HTTP 4318) + OTel Go SDK로 계측. otelhttp 서버 미들웨어 + valkey.incr/kafka.produce/kafka.consume 커스텀 span. Kafka RecordHeader에 traceparent 주입/추출로 async 경계 전파 성공. Tempo API 조회 결과 하나의 /id 요청이 4-span waterfall(SERVER→INTERNAL×2→CONSUMER)로 묶여 관측됨. v0.8.0 |
-| ch8 | 8.3 CronJob | ⬜ | | |
+| ch8 | 8.3 CronJob | ✅ | 2026-09-07 | k8s/smb/healthcheck-cronjob.yaml(5분 스케줄, ops-pool nodeSelector, curlimages/curl:8.10.1로 svc DNS /health→200 검증). concurrencyPolicy=Forbid, history 3/3, ttl 1h. App of Apps로 자동 배포됨. `kubectl create job --from=cronjob/notiflex-healthcheck`로 즉시 트리거 → 로그 `status=200 body={"status":"ok"} healthcheck ok` 확인 |
 | ch9 | 9.1 저장소 분석 | ⬜ | | |
 | ch9 | 9.2 회고 | ⬜ | | |
 | ch9 | 9.3 온보딩 문서 | ⬜ | | |
@@ -58,6 +58,7 @@
 | 멀티테넌시 (ch7.4) | Namespace 분리 + per-tenant Rollout | 단일 namespace + 라벨 격리, NetworkPolicy 추가, vCluster, 클러스터별 분리 | K8s 기본 기능만으로 즉시 격리 가능. 7.3 App of Apps와 자연 결합(테넌트 추가 = argocd/apps/에 YAML 하나). 공유 자원(Valkey)은 cross-namespace DNS로 접근해 리소스 중복 방지. 단일 e2-medium × 5노드 클러스터에서 vCluster/별도 클러스터는 비현실적이며, NetworkPolicy는 Dataplane V2 재구성이 필요해 학습 단계 범위 밖. ResourceQuota로 노이지 네이버 완화 |
 | 메시징 (ch8.1) | Kafka (Strimzi Operator, KRaft 단일 브로커) | RabbitMQ, NATS, Redis Streams | 이벤트 드리븐의 사실상 업계 표준이라 학습 가치가 가장 큼. Strimzi가 Kafka/KafkaTopic을 CRD로 제공해 App of Apps 흐름에 그대로 편입 가능. KRaft로 ZooKeeper 없이 단일 브로커 운영 → worker-pool(e2-standard-2)에서 감당. RabbitMQ는 스트리밍 취약, NATS는 채택률 낮음, Redis Streams는 Valkey와 리소스 공유로 캐시·큐 격리가 어려움 |
 | 트레이싱 (ch8.2) | Grafana Tempo (monolithic) + OTel Go SDK | Jaeger, Zipkin | 4장 관측 스택이 이미 Grafana 중심이라 Tempo가 3축(메트릭·로그·트레이스) 통합에 자연스러움. tracesToLogsV2로 Loki에서 TraceID 클릭 → Tempo 스팬 → serviceMap으로 Prometheus 메트릭까지 상호 참조. 리소스 25m로 e2-small(ops-pool)에도 여유. Jaeger는 별도 UI + Elasticsearch 백엔드가 학습 규모에서 과함, Zipkin은 OTel 마이그레이션 흐름과 반대. 앱은 OTel SDK로 계측했으므로 백엔드 교체 시 exporter만 바꾸면 됨(락인 없음) |
+| 배치 자동화 (ch8.3) | K8s CronJob | Argo Workflows, Airflow, 외부 VM cron | K8s 내장 리소스라 추가 설치 0, YAML 한 파일로 표현되어 App of Apps 흐름에 그대로 편입. "5분마다 curl 한 번" 수준에는 DAG 오케스트레이터(Argo Workflows/Airflow)가 과도하고, 외부 VM cron은 GitOps 밖으로 이탈. 실패 시 restartPolicy=OnFailure + backoffLimit로 자동 재시도, kube-state-metrics의 kube_job_status_failed로 4장 Alertmanager와 연동 가능 |
 
 ## 현재 버전
 
