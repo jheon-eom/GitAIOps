@@ -103,3 +103,27 @@
 - **기존 자산 재활용**: ch6.2 CSI+WI(테넌트 SA를 동일 GSA에 추가 바인딩), ch7.2 api-pool nodeSelector, ch7.3 App of Apps + sync-wave 를 그대로 결합하여 새 도구 도입 없이 온보딩 완료
 - **공유 인프라 실전 학습**: `valkey-primary.notiflex.svc.cluster.local` 형태의 cross-namespace DNS로 공유 자원을 재사용하여 리소스 중복 없이 실제 SaaS 패턴 경험
 - **격리 강도 vs 비용 균형**: 단일 e2-medium × 5노드 클러스터에서 vCluster는 최소 100~300MB 오버헤드, 별도 클러스터는 비용 2배+. NetworkPolicy는 Dataplane V2 재구성이 필요해 학습 단계 범위 밖. ResourceQuota로 노이지 네이버는 완화
+
+## ADR-014: 비동기 메시징으로 Kafka (Strimzi Operator, KRaft 단일 브로커) 채택 (8장)
+**시점**: 2026-09 / **결정**: `notifications` 토픽에 이벤트를 publish하고 별도 Consumer가 처리하는 방식으로 요청 수신과 처리를 분리. Strimzi 1.2.0의 `Kafka`/`KafkaNodePool`/`KafkaTopic` CRD를 사용해 App of Apps에 편입. RabbitMQ, NATS, Redis Streams(Valkey)는 채택하지 않음
+**이유**:
+- **업계 표준 학습 가치**: 이벤트 드리븐 아키텍처의 사실상 표준이라 실무 전이가 가장 크며, sarama Producer/ConsumerGroup 조합은 어느 Kafka 배포에서도 재사용 가능
+- **GitOps 흐름 유지**: Strimzi가 Kafka 클러스터·토픽을 CRD로 노출하여 `argocd/apps/notiflex-kafka.yaml`(sync-wave 1) 하나로 관리 대상 편입, 별도 관리 UI/CLI 불필요
+- **경량 운영 가능**: KRaft 모드로 ZooKeeper 없이 단일 브로커(controller+broker) 구성 → e2-standard-2 worker-pool에서 감당. 메시지는 PVC(JBOD 10Gi)로 영속되어 Pod 재시작 시에도 유실 없음
+- **대안 부적합**: RabbitMQ는 스트리밍·재처리 취약, NATS는 채택률 낮아 학습 투자 대비 효과 낮음, Redis Streams는 이미 캐시로 쓰는 Valkey와 리소스 공유로 캐시·큐 격리가 어려움
+
+## ADR-015: 분산 트레이싱으로 Grafana Tempo + OpenTelemetry SDK 채택 (8장)
+**시점**: 2026-09 / **결정**: 앱은 OTel Go SDK로 계측하고, 백엔드는 Tempo(monolithic, ops-pool)를 OTLP gRPC 4317로 사용. Grafana에서 3축(Prometheus/Loki/Tempo) 상호 참조. Jaeger, Zipkin은 채택하지 않음
+**이유**:
+- **관측 스택 통합**: 4장에서 이미 Grafana + Prometheus + Loki를 운영 중이라 Tempo만 얹으면 하나의 Grafana에서 메트릭 스파이크 → 로그 → TraceID → 스팬 waterfall 흐름이 자연스럽게 연결됨(`tracesToLogsV2` + `serviceMap`)
+- **비동기 경계에서도 컨텍스트 전파**: OTel의 W3C traceparent를 Kafka `RecordHeader`에 주입/추출하여 Producer(요청 처리 스레드)와 Consumer(백그라운드 goroutine)가 같은 TraceID로 묶이는 4-span waterfall(SERVER→INTERNAL×2→CONSUMER) 실제 검증
+- **백엔드 락인 없음**: 앱은 OTel SDK만 의존하므로 exporter만 교체하면 Jaeger/Datadog 등으로 이동 가능 → Tempo 선택이 향후 옵션을 닫지 않음
+- **학습 규모에 적합한 리소스**: monolithic 모드로 인덱스 없이 로컬 WAL만 사용, requests 25m로 e2-small(ops-pool)에 여유. Jaeger는 프로덕션 운영에 Elasticsearch/Cassandra 백엔드가 사실상 필수라 학습 규모에 과함, Zipkin은 OTel 마이그레이션 흐름과 반대
+
+## ADR-016: 주기적 자동 실행으로 K8s CronJob 채택 (8장)
+**시점**: 2026-09 / **결정**: 5분마다 `notiflex-api` `/health`를 in-cluster에서 curl로 호출하는 `notiflex-healthcheck` CronJob을 `k8s/smb/`에 배치하여 App of Apps로 관리. Argo Workflows, Airflow, 외부 VM cron은 채택하지 않음
+**이유**:
+- **K8s 내장 리소스**: 추가 설치·CRD·서버 없이 YAML 한 파일로 표현 가능하여 App of Apps 흐름에 그대로 편입되고, 학습·운영 부담이 최소
+- **liveness/readiness가 커버하지 않는 지점을 보완**: kubelet의 probe는 개별 Pod의 살아있음만 확인하므로 "Service DNS + Rollout stable ReplicaSet의 endpoint chain 전체가 200을 돌려주는가"는 관측 공백. CronJob은 외부 관점의 E2E 헬스를 5분 주기로 채움
+- **실패 신호가 관측 스택과 자연 연결**: `restartPolicy=OnFailure` + `backoffLimit`로 자동 재시도되고, 실패는 kube-state-metrics의 `kube_job_status_failed` 메트릭으로 노출되어 4장 Alertmanager와 즉시 연동 가능
+- **대안 오버 엔지니어링**: Argo Workflows/Airflow는 DAG·다단계 워크플로에 값을 하는 도구로 "5분마다 curl 한 번"에는 과도. 외부 VM cron은 GitOps 경계 밖으로 이탈하여 변경 이력·감사 추적 상실
