@@ -42,6 +42,8 @@ spec:
               value: /mnt/secrets/valkey-password
             - name: KAFKA_BROKER
               value: notiflex-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: tempo.monitoring.svc.cluster.local:4317
           volumeMounts:
             - name: secrets
               mountPath: /mnt/secrets
