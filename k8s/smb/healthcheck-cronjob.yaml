@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: notiflex-healthcheck
+  namespace: notiflex
+  labels:
+    app: notiflex-healthcheck
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: notiflex-healthcheck
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            cloud.google.com/gke-nodepool: ops-pool
+          containers:
+            - name: healthcheck
+              image: curlimages/curl:8.10.1
+              args:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  URL="http://notiflex-api.notiflex.svc.cluster.local/health"
+                  echo "[$(date -Iseconds)] GET $URL"
+                  code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 5 "$URL")
+                  echo "status=$code body=$(cat /tmp/body)"
+                  if [ "$code" != "200" ]; then
+                    echo "healthcheck failed (expected 200, got $code)" >&2
+                    exit 1
+                  fi
+                  echo "healthcheck ok"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 32Mi
