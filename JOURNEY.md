@@ -29,7 +29,7 @@
 | ch7 | 7.3 App of Apps | ✅ | 2026-09-05 | argocd/root-app.yaml (directory.recurse: true) + argocd/apps/ 재구성. notiflex-smb를 apps/로 이동하며 sync-wave=2 부여. 커밋 a45090b push → root-app 부트스트랩 → notiflex-smb tracking-id가 root-app으로 인계, Pod 무중단 |
 | ch7 | 7.4 멀티테넌시 | ✅ | 2026-09-05 | Namespace 분리(enterprise) + RBAC(Workload Identity SA를 enterprise ns용으로 추가 바인딩) + ResourceQuota(pods:3, cpu/mem 상한). ch6.2 CSI+WI + ch7.2 api-pool + ch7.3 App of Apps 패턴을 그대로 재사용. cross-namespace DNS로 notiflex ns의 Valkey 공유 검증(/id → 20) |
 | ch8 | 8.1 메시징 | ✅ | 2026-09-07 | Strimzi 1.2.0 + Kafka 4.3.0 (KRaft 단일 브로커, worker-pool nodeAffinity). notifications 토픽 3 partitions. notiflex-api를 sarama SyncProducer + ConsumerGroup으로 개편(v0.7.0), /id 호출 시 3개 파티션에 라운드로빈 publish, 백그라운드 consumer가 즉시 로그 출력 확인. argocd/apps/notiflex-kafka.yaml(sync-wave 1)로 App of Apps에 편입 |
-| ch8 | 8.2 트레이싱 | ⬜ | | |
+| ch8 | 8.2 트레이싱 | ✅ | 2026-09-07 | Tempo(grafana/tempo chart, monolithic, ops-pool 배치, OTLP gRPC 4317/HTTP 4318) + OTel Go SDK로 계측. otelhttp 서버 미들웨어 + valkey.incr/kafka.produce/kafka.consume 커스텀 span. Kafka RecordHeader에 traceparent 주입/추출로 async 경계 전파 성공. Tempo API 조회 결과 하나의 /id 요청이 4-span waterfall(SERVER→INTERNAL×2→CONSUMER)로 묶여 관측됨. v0.8.0 |
 | ch8 | 8.3 CronJob | ⬜ | | |
 | ch9 | 9.1 저장소 분석 | ⬜ | | |
 | ch9 | 9.2 회고 | ⬜ | | |
@@ -57,13 +57,14 @@
 | 다중 앱 관리 (ch7.3) | App of Apps (root Application) | ApplicationSet, 수동 관리 | 순수 YAML 그대로라 문법 학습 없음. 앱 5~7개 규모에 충분하고, "폴더에 YAML 넣으면 앱이 생긴다"는 GitOps 원칙에 그대로 맞음. ApplicationSet은 dev/staging/prod 등 동일 앱을 다중 환경에 뿌릴 때 강점이라 단일 클러스터인 Notiflex에는 과함. 수동 관리는 앱 누락·순서 관리가 사람의 몫이라 스케일이 어려움 |
 | 멀티테넌시 (ch7.4) | Namespace 분리 + per-tenant Rollout | 단일 namespace + 라벨 격리, NetworkPolicy 추가, vCluster, 클러스터별 분리 | K8s 기본 기능만으로 즉시 격리 가능. 7.3 App of Apps와 자연 결합(테넌트 추가 = argocd/apps/에 YAML 하나). 공유 자원(Valkey)은 cross-namespace DNS로 접근해 리소스 중복 방지. 단일 e2-medium × 5노드 클러스터에서 vCluster/별도 클러스터는 비현실적이며, NetworkPolicy는 Dataplane V2 재구성이 필요해 학습 단계 범위 밖. ResourceQuota로 노이지 네이버 완화 |
 | 메시징 (ch8.1) | Kafka (Strimzi Operator, KRaft 단일 브로커) | RabbitMQ, NATS, Redis Streams | 이벤트 드리븐의 사실상 업계 표준이라 학습 가치가 가장 큼. Strimzi가 Kafka/KafkaTopic을 CRD로 제공해 App of Apps 흐름에 그대로 편입 가능. KRaft로 ZooKeeper 없이 단일 브로커 운영 → worker-pool(e2-standard-2)에서 감당. RabbitMQ는 스트리밍 취약, NATS는 채택률 낮음, Redis Streams는 Valkey와 리소스 공유로 캐시·큐 격리가 어려움 |
+| 트레이싱 (ch8.2) | Grafana Tempo (monolithic) + OTel Go SDK | Jaeger, Zipkin | 4장 관측 스택이 이미 Grafana 중심이라 Tempo가 3축(메트릭·로그·트레이스) 통합에 자연스러움. tracesToLogsV2로 Loki에서 TraceID 클릭 → Tempo 스팬 → serviceMap으로 Prometheus 메트릭까지 상호 참조. 리소스 25m로 e2-small(ops-pool)에도 여유. Jaeger는 별도 UI + Elasticsearch 백엔드가 학습 규모에서 과함, Zipkin은 OTel 마이그레이션 흐름과 반대. 앱은 OTel SDK로 계측했으므로 백엔드 교체 시 exporter만 바꾸면 됨(락인 없음) |
 
 ## 현재 버전
 
 | 컴포넌트 | 버전 | 변경 이력 |
 |---------|------|----------|
 | Go | 1.25 | 2026-09-03 초기 설정 (ch6 valkey-go, ch8 OTel SDK 대비) |
-| Notiflex 이미지 | sha-6956527 (v0.7.0) | 2026-09-07 8.1에서 Kafka Producer/Consumer 통합 배포. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 첫 승격) → sha-afbc9b9(CI, 5.3 Blue/Green 관찰 시연) → sha-b1962d9(CI, 6.1 Valkey INCR 통합) → sha-c17a1ed(CI, 6.2 CSI Secret 통합) → sha-954b417(CI, 6.3 Canary 20/50/80/100) → sha-6956527(CI, 8.1 Kafka sarama Producer+ConsumerGroup) |
+| Notiflex 이미지 | sha-0158fed (v0.8.0) | 2026-09-07 8.2에서 OTel 트레이싱 통합 배포. 이력: v0.1.0(수동) → v0.1.1(수동, /version) → sha-97380d1(CI, 최초 자동) → sha-d1462c9(CI, /ping E2E) → sha-11a274f(CI, 5.3 Blue/Green 첫 승격) → sha-afbc9b9(CI, 5.3 Blue/Green 관찰 시연) → sha-b1962d9(CI, 6.1 Valkey INCR 통합) → sha-c17a1ed(CI, 6.2 CSI Secret 통합) → sha-954b417(CI, 6.3 Canary 20/50/80/100) → sha-6956527(CI, 8.1 Kafka sarama Producer+ConsumerGroup) → sha-0158fed(CI, 8.2 OTel tracing + Tempo exporter) |
 | ArgoCD | v3.5.2 | 2026-09-04 설치 (stable manifest) |
 | kube-prometheus-stack | chart 89.2.0 (operator v0.93.1) / Prometheus v3.14.0 / Grafana 13.2.1 / Alertmanager v0.34.0 | 2026-09-04 설치. Prometheus 100m/256Mi, Alertmanager 25m/64Mi 초기값 (ch6 CSI 대비 임시). Grafana는 4.3에서 sidecar.datasources 활성화 + OOMKilled로 memory limit 256→512Mi 상향 |
 | Loki | chart 7.3.0 / app 3.6.12 (SingleBinary) | 2026-09-04 설치. schemaConfig v13 명시, useTestSchema 제거, backend/read/write replicas=0 |
@@ -83,7 +84,9 @@
 | Strimzi Operator | Helm chart 1.2.0 | 2026-09-07 8.1에서 도입. kafka ns, nodeSelector=worker-pool로 배치. Strimzi 1.2.0은 Kafka 4.2.0~4.3.1만 지원(4.1.0은 UnsupportedKafkaVersionException) |
 | Kafka | 4.3.0 (metadataVersion 4.3-IV0, KRaft) | 2026-09-07 8.1에서 도입. KafkaNodePool 단일 브로커(controller+broker), worker-pool nodeAffinity, JBOD 10Gi PVC. notifications 토픽 3 partitions/RF=1. entity-operator의 topicOperator만 활성 (userOperator 비활성) |
 | IBM/sarama | v1.60.2 | 2026-09-07 8.1에서 도입. `V4_3_0_0` 상수 사용. SyncProducer(RequiredAcks=WaitForLocal) + ConsumerGroup(OffsetNewest, group=notiflex-api) 조합. KAFKA_BROKER 미설정 시 producer/consumer 비활성으로 graceful degrade |
-| OTel SDK | | |
+| Tempo | grafana/tempo chart(deprecated 경고 무시), monolithic | 2026-09-07 8.2에서 도입. ops-pool nodeSelector, OTLP gRPC 4317 + HTTP 4318 활성. persistence 비활성(로컬 WAL만 사용, 학습 목적). service=tempo.monitoring.svc.cluster.local:3200 |
+| OTel SDK | otel v1.38.0 + otlptracegrpc v1.38.0 + otelhttp v0.63 + semconv v1.26.0 | 2026-09-07 8.2에서 도입. TracerProvider(AlwaysSample) + BatchSpanProcessor. propagator: TraceContext + Baggage. OTEL_EXPORTER_OTLP_ENDPOINT 미설정 시 tracer.noop로 graceful degrade. Kafka RecordHeader 캐리어 자체 구현으로 async 스팬 연결 |
+| Tempo Grafana 데이터소스 | tempo-datasource ConfigMap | 2026-09-07 8.2 도입. grafana_datasource=1 라벨로 sidecar 자동 로드. tracesToLogsV2로 Loki 상호 참조, serviceMap datasourceUid=prometheus |
 
 ## 현재 리소스
 
@@ -92,7 +95,7 @@
 | default-pool | e2-medium (Spot, disk 30GB) | 2 | Valkey standalone(CPU 10m), ArgoCD, kube-prometheus-stack(축소), CSI Secrets Store DaemonSet(GKE managed, 노드당 120m), argo-rollouts controller. notiflex-api는 7.2에서 api-pool로 이동. **Loki/Fluent Bit는 ch6.2에서 임시 uninstall, ch7.2 이후 ops-pool 활용해 복원 예정** |
 | api-pool | e2-medium (Spot, disk 50GB pd-standard) | 1 | notiflex ns Rollout(1 replica, 10m) + **enterprise ns Rollout(1 replica, 10m — 7.4에서 추가)**. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
 | worker-pool | e2-standard-2 (Spot, disk 50GB pd-standard) | 1 | Strimzi Operator + Kafka broker(4.3.0 KRaft) + entity-operator (8.1 도입). 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
-| ops-pool | e2-small (Spot, disk 50GB pd-standard) | 1 | (예약) Prometheus/Grafana/Loki/Fluent Bit 등 운영 도구 대상. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
+| ops-pool | e2-small (Spot, disk 50GB pd-standard) | 1 | Tempo monolithic(8.2 도입, req 25m/128Mi). Prometheus/Grafana/Loki/Fluent Bit 등 관측 도구는 향후 이 풀로 이전 예정. 7.2에서 신설, `--workload-metadata=GKE_METADATA` 지정 |
 
 **GCP 컨텍스트**
 - Project: `git-ai-ops-practice`
